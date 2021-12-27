@@ -34,21 +34,20 @@ impl EventHandler for Handler {
             }
         };
 
-        let (http, channel_id, user_id) = {
+        let (user_id, sender) = {
             let data = ctx.data.read().await;
 
-            let http = data.get::<HttpKey>().unwrap().to_owned();
-            let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
+            let sender = data.get::<SenderKey>().unwrap().to_owned();
 
-            (http, channel_id, user_id)
+            (user_id, sender)
         };
-
-        // if user_id != msg.author.id && !msg.author.bot {
-        //     send_message(&http, &channel_id, &format!("{}: {}", nick, msg.content))
-        //         .await
-        //         .unwrap();
-        // }
+        
+        if user_id != msg.author.id && !msg.author.bot {
+            send_irc_message(&sender, &format!("<{}> {}", nick, msg.content))
+                .await
+                .unwrap();
+        }
     }
 
     async fn ready(&self, ctx: Context, info: Ready) {
@@ -100,14 +99,12 @@ async fn main() -> anyhow::Result<()> {
         ..Config::default()
     };
 
-    let mut irc_client = IrcClient::from_config(config).await?;
+    let irc_client = IrcClient::from_config(config).await?;
 
     let http = discord_client.cache_and_http.http.clone();
 
     {
         let mut data = discord_client.data.write().await;
-        data.insert::<HttpKey>(http.clone());
-        data.insert::<ChannelIdKey>(channel_id);
         data.insert::<SenderKey>(irc_client.sender());
     }
 
@@ -116,6 +113,11 @@ async fn main() -> anyhow::Result<()> {
     });
     discord_client.start().await?;
 
+    Ok(())
+}
+
+async fn send_irc_message(sender: &Sender, content: &str) -> anyhow::Result<()> {
+    sender.send_privmsg("#no-normies", content)?;
     Ok(())
 }
 
@@ -128,7 +130,7 @@ async fn irc_loop(
     let mut stream = client.stream()?;
     while let Some(orig_message) = stream.next().await.transpose()? {
         print!("{}", orig_message);
-        if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
+        if let Command::PRIVMSG(_, ref message) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
             channel_id
                 .say(&http, format!("{}: {}", nickname, message))
