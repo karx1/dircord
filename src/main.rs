@@ -37,7 +37,7 @@ impl EventHandler for Handler {
             (http, channel_id, user_id)
         };
 
-        if user_id != msg.author.id {
+        if user_id != msg.author.id && !msg.author.bot {
             send_message(&http, &channel_id, &format!("{}: {}", nick, msg.content))
                 .await
                 .unwrap();
