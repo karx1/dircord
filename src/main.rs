@@ -90,7 +90,7 @@ async fn main() -> anyhow::Result<()> {
     let value = data.parse::<Value>()?;
 
     let token = value["token"].as_str().expect("No token provided!").to_string();
-    let webhook = value["webhook"].as_str().map(|s| s.to_string());
+    let webhook = value.get("webhook").map(|v| v.as_str().map(|s| s.to_string())).flatten();
 
     let mut discord_client = DiscordClient::builder(&token)
         .event_handler(Handler)
@@ -120,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
     let webhook = parse_webhook_url(http.clone(), webhook).await;
 
     tokio::spawn(async move {
-        irc_loop(irc_client, http, channel_id).await.unwrap();
+        irc_loop(irc_client, http, channel_id, webhook).await.unwrap();
     });
     discord_client.start().await?;
 
@@ -136,6 +136,7 @@ async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
     channel_id: ChannelId,
+    webhook: Option<Webhook>
 ) -> anyhow::Result<()> {
     client.identify()?;
     let mut stream = client.stream()?;
@@ -143,9 +144,17 @@ async fn irc_loop(
         print!("{}", orig_message);
         if let Command::PRIVMSG(_, ref message) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
-            channel_id
-                .say(&http, format!("{}: {}", nickname, message))
-                .await?;
+            if let Some(ref webhook) = webhook {
+                webhook.execute(&http, false, |w| {
+                    w.username(nickname);
+                    w.content(message);
+                    w
+                }).await?;
+            } else {
+                channel_id
+                    .say(&http, format!("{}: {}", nickname, message))
+                    .await?;
+            }
         }
     }
     Ok(())
