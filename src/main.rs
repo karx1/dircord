@@ -1,4 +1,4 @@
-use std::{env, sync::Arc, fs::File, io::Read};
+use std::{collections::HashMap, env, fs::File, io::Read, sync::Arc};
 
 use serenity::{
     async_trait,
@@ -6,8 +6,10 @@ use serenity::{
     http::Http,
     model::{
         channel::Message,
+        guild::Member,
         id::{ChannelId, UserId},
-        prelude::Ready, webhook::Webhook,
+        prelude::Ready,
+        webhook::Webhook,
     },
     prelude::*,
     Client as DiscordClient,
@@ -44,7 +46,7 @@ impl EventHandler for Handler {
 
             (user_id, sender)
         };
-        
+
         if user_id != msg.author.id && !msg.author.bot {
             send_irc_message(&sender, &format!("<{}> {}", nick, msg.content))
                 .await
@@ -89,8 +91,14 @@ async fn main() -> anyhow::Result<()> {
 
     let value = data.parse::<Value>()?;
 
-    let token = value["token"].as_str().expect("No token provided!").to_string();
-    let webhook = value.get("webhook").map(|v| v.as_str().map(|s| s.to_string())).flatten();
+    let token = value["token"]
+        .as_str()
+        .expect("No token provided!")
+        .to_string();
+    let webhook = value
+        .get("webhook")
+        .map(|v| v.as_str().map(|s| s.to_string()))
+        .flatten();
 
     let mut discord_client = DiscordClient::builder(&token)
         .event_handler(Handler)
@@ -112,15 +120,28 @@ async fn main() -> anyhow::Result<()> {
 
     let http = discord_client.cache_and_http.http.clone();
 
+    let members = channel_id
+        .to_channel(discord_client.cache_and_http.clone())
+        .await?
+        .guild()
+        .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
+        .guild_id
+        .members(&http, None, None)
+        .await?;
+
     {
         let mut data = discord_client.data.write().await;
         data.insert::<SenderKey>(irc_client.sender());
     }
 
-    let webhook = parse_webhook_url(http.clone(), webhook).await.expect("Invalid webhook URL");
+    let webhook = parse_webhook_url(http.clone(), webhook)
+        .await
+        .expect("Invalid webhook URL");
 
     tokio::spawn(async move {
-        irc_loop(irc_client, http, channel_id, webhook).await.unwrap();
+        irc_loop(irc_client, http, channel_id, webhook, members)
+            .await
+            .unwrap();
     });
     discord_client.start().await?;
 
@@ -136,20 +157,51 @@ async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
     channel_id: ChannelId,
-    webhook: Option<Webhook>
+    webhook: Option<Webhook>,
+    members: Vec<Member>,
 ) -> anyhow::Result<()> {
+    let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
+
     client.identify()?;
     let mut stream = client.stream()?;
+
     while let Some(orig_message) = stream.next().await.transpose()? {
         print!("{}", orig_message);
         if let Command::PRIVMSG(_, ref message) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
             if let Some(ref webhook) = webhook {
-                webhook.execute(&http, false, |w| {
-                    w.username(nickname);
-                    w.content(message);
-                    w
-                }).await?;
+                if avatar_cache.get(nickname).is_none() {
+                    let mut found = false;
+                    for member in &members {
+                        let nick = match &member.nick {
+                            Some(s) => s.to_owned(),
+                            None => member.user.name.clone(),
+                        };
+
+                        if nick == nickname {
+                            found = true;
+                            let avatar_url = member.user.avatar_url();
+                            avatar_cache.insert(nickname.to_string(), avatar_url);
+                            break;
+                        }
+                    }
+
+                    if !found {
+                        avatar_cache.insert(nickname.to_string(), None); // user is not in the guild
+                    }
+                }
+                webhook
+                    .execute(&http, false, |w| {
+                        if let Some(cached) = avatar_cache.get(nickname) {
+                            if let &Some(ref url) = cached {
+                                w.avatar_url(url);
+                            }
+                        }
+                        w.username(nickname);
+                        w.content(message);
+                        w
+                    })
+                    .await?;
             } else {
                 channel_id
                     .say(&http, format!("{}: {}", nickname, message))
@@ -160,7 +212,10 @@ async fn irc_loop(
     Ok(())
 }
 
-async fn parse_webhook_url(http: Arc<Http>, url: Option<String>) -> anyhow::Result<Option<Webhook>> {
+async fn parse_webhook_url(
+    http: Arc<Http>,
+    url: Option<String>,
+) -> anyhow::Result<Option<Webhook>> {
     if let Some(url) = url {
         let url = url.trim_start_matches("https://discord.com/api/webhooks/");
         let split = url.split("/").collect::<Vec<&str>>();
