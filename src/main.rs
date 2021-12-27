@@ -117,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<SenderKey>(irc_client.sender());
     }
 
-    let webhook = parse_webhook_url(http.clone(), webhook).await;
+    let webhook = parse_webhook_url(http.clone(), webhook).await.expect("Invalid webhook URL");
 
     tokio::spawn(async move {
         irc_loop(irc_client, http, channel_id, webhook).await.unwrap();
@@ -160,15 +160,15 @@ async fn irc_loop(
     Ok(())
 }
 
-async fn parse_webhook_url(http: Arc<Http>, url: Option<String>) -> Option<Webhook> {
+async fn parse_webhook_url(http: Arc<Http>, url: Option<String>) -> anyhow::Result<Option<Webhook>> {
     if let Some(url) = url {
         let url = url.trim_start_matches("https://discord.com/api/webhooks/");
         let split = url.split("/").collect::<Vec<&str>>();
-        let id = split[0].parse::<u64>().expect("Invalid webhook URL");
+        let id = split[0].parse::<u64>()?;
         let token = split[1].to_string();
-        let webhook = http.get_webhook_with_token(id, &token).await.expect("Invalid webhook URL");
-        Some(webhook)
+        let webhook = http.get_webhook_with_token(id, &token).await?;
+        Ok(Some(webhook))
     } else {
-        None
+        Ok(None)
     }
 }
