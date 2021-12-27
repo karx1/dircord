@@ -7,7 +7,7 @@ use serenity::{
     model::{
         channel::Message,
         id::{ChannelId, UserId},
-        prelude::Ready,
+        prelude::Ready, webhook::Webhook,
     },
     prelude::*,
     Client as DiscordClient,
@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
     let value = data.parse::<Value>()?;
 
     let token = value["token"].as_str().expect("No token provided!").to_string();
+    let webhook = value["webhook"].as_str().map(|s| s.to_string());
 
     let mut discord_client = DiscordClient::builder(&token)
         .event_handler(Handler)
@@ -115,6 +116,8 @@ async fn main() -> anyhow::Result<()> {
         let mut data = discord_client.data.write().await;
         data.insert::<SenderKey>(irc_client.sender());
     }
+
+    let webhook = parse_webhook_url(http.clone(), webhook).await;
 
     tokio::spawn(async move {
         irc_loop(irc_client, http, channel_id).await.unwrap();
@@ -146,4 +149,17 @@ async fn irc_loop(
         }
     }
     Ok(())
+}
+
+async fn parse_webhook_url(http: Arc<Http>, url: Option<String>) -> Option<Webhook> {
+    if let Some(url) = url {
+        let url = url.trim_start_matches("https://discord.com/api/webhooks/");
+        let split = url.split("/").collect::<Vec<&str>>();
+        let id = split[0].parse::<u64>().expect("Invalid webhook URL");
+        let token = split[1].to_string();
+        let webhook = http.get_webhook_with_token(id, &token).await.expect("Invalid webhook URL");
+        Some(webhook)
+    } else {
+        None
+    }
 }
