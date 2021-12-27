@@ -175,6 +175,7 @@ dependencies = [
  "irc",
  "serenity",
  "tokio",
+ "toml",
 ]
 
 [[package]]

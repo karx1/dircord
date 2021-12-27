@@ -1,4 +1,4 @@
-use std::{env, sync::Arc};
+use std::{env, sync::Arc, fs::File, io::Read};
 
 use serenity::{
     async_trait,
@@ -17,6 +17,8 @@ use irc::{
     client::{data::Config, Client as IrcClient, Sender},
     proto::Command,
 };
+
+use toml::Value;
 
 struct Handler;
 
@@ -81,7 +83,13 @@ impl TypeMapKey for SenderKey {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set");
+    let filename = env::args().nth(1).expect("No filename was provided!");
+    let mut data = String::new();
+    File::open(filename)?.read_to_string(&mut data)?;
+
+    let value = data.parse::<Value>()?;
+
+    let token = value["token"].as_str().expect("No token provided!").to_string();
 
     let mut discord_client = DiscordClient::builder(&token)
         .event_handler(Handler)

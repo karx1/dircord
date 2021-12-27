@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.52"
 irc = "0.15"
+toml = "0.5"
 
 [dependencies.tokio]
 version = "1.15.0"
