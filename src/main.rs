@@ -207,6 +207,17 @@ async fn irc_loop(
                     .say(&http, format!("{}: {}", nickname, message))
                     .await?;
             }
+        } else if let Command::JOIN(_, _, _) = orig_message.command {
+            let nickname = orig_message.source_nickname().unwrap();
+            channel_id
+                .say(&http, format!("*{}* has joined the channel", nickname))
+                .await?;
+        } else if let Command::PART(_, ref reason) | Command::QUIT(ref reason) = orig_message.command {
+            let nickname = orig_message.source_nickname().unwrap();
+            let reason = reason.as_ref().unwrap_or(&String::from("Connection closed")).to_string();
+            channel_id
+                .say(&http, format!("*{}* has quit ({})", nickname, reason))
+                .await?;
         }
     }
     Ok(())
