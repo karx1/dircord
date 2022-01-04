@@ -20,7 +20,19 @@ use irc::{
     proto::Command,
 };
 
-use toml::Value;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct DircordConfig {
+    token: String,
+    webhook: Option<String>,
+    nickname: Option<String>,
+    server: String,
+    port: Option<u16>,
+    channels: Vec<String>,
+    mode: Option<String>,
+    tls: Option<bool>,
+}
 
 struct Handler;
 
@@ -85,34 +97,25 @@ impl TypeMapKey for SenderKey {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let filename = env::args().nth(1).expect("No filename was provided!");
+    let filename = env::args().nth(1).unwrap_or(String::from("config.toml"));
     let mut data = String::new();
     File::open(filename)?.read_to_string(&mut data)?;
 
-    let value = data.parse::<Value>()?;
+    let conf: DircordConfig = toml::from_str(&data)?;
 
-    let token = value["token"]
-        .as_str()
-        .expect("No token provided!")
-        .to_string();
-    let webhook = value
-        .get("webhook")
-        .map(|v| v.as_str().map(|s| s.to_string()))
-        .flatten();
-
-    let mut discord_client = DiscordClient::builder(&token)
+    let mut discord_client = DiscordClient::builder(&conf.token)
         .event_handler(Handler)
         .await?;
 
     let channel_id = ChannelId(831255708875751477);
 
     let config = Config {
-        nickname: Some("dircord".to_string()),
-        server: Some("192.168.1.28".to_owned()),
-        port: Some(6667),
-        channels: vec!["#no-normies".to_string()],
-        use_tls: Some(false),
-        umodes: Some("+B".to_string()),
+        nickname: conf.nickname,
+        server: Some(conf.server),
+        port: conf.port,
+        channels: conf.channels,
+        use_tls: conf.tls,
+        umodes: conf.mode,
         ..Config::default()
     };
 
@@ -134,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<SenderKey>(irc_client.sender());
     }
 
-    let webhook = parse_webhook_url(http.clone(), webhook)
+    let webhook = parse_webhook_url(http.clone(), conf.webhook)
         .await
         .expect("Invalid webhook URL");
 
