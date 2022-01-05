@@ -50,6 +50,24 @@ impl EventHandler for Handler {
             }
         };
 
+        let mut b = [0; 1];
+        nick.chars().nth(0).unwrap().encode_utf8(&mut b);
+        let byte = b[0];
+
+        let colour_index = (byte as usize + nick.len()) % 12;
+        let formatted = format!("\x03{:02}", colour_index);
+
+        let mut new_nick = String::with_capacity(nick.len());
+        new_nick.push_str(&formatted);
+
+        for char in nick.chars() {
+            new_nick.push(char);
+            new_nick.push('\u{200B}');
+            new_nick.push_str(&formatted);
+        }
+        new_nick.push_str("\x030");
+        println!("{:#?}", new_nick);
+
         let (user_id, sender) = {
             let data = ctx.data.read().await;
 
@@ -60,7 +78,7 @@ impl EventHandler for Handler {
         };
 
         if user_id != msg.author.id && !msg.author.bot {
-            send_irc_message(&sender, &format!("<{}> {}", nick, msg.content))
+            send_irc_message(&sender, &format!("<{}> {}", new_nick, msg.content))
                 .await
                 .unwrap();
         }
