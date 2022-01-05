@@ -6,6 +6,6 @@ TODO:
 - [x] handle join and leave messages
 - [ ] use the tracing crate
 - [x] `irc` crate config toml
-- [ ] handle attachments properly
+- [x] handle attachments properly
 - [x] don't ping IRC users (and color IRC usernames)
 - [ ] handle discord pings
