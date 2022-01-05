@@ -77,10 +77,17 @@ impl EventHandler for Handler {
             (user_id, sender)
         };
 
+        let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
+
         if user_id != msg.author.id && !msg.author.bot {
             send_irc_message(&sender, &format!("<{}> {}", new_nick, msg.content))
                 .await
                 .unwrap();
+            for attachment in attachments {
+                send_irc_message(&sender, &format!("<{}> {}", new_nick, attachment))
+                    .await
+                    .unwrap();
+            }
         }
     }
 
