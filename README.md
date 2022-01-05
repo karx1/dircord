@@ -7,5 +7,5 @@ TODO:
 - [ ] use the tracing crate
 - [x] `irc` crate config toml
 - [ ] handle attachments properly
-- [ ] don't ping IRC users (and color IRC usernames)
+- [x] don't ping IRC users (and color IRC usernames)
 - [ ] handle discord pings
