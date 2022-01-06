@@ -196,6 +196,7 @@ async fn irc_loop(
 
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"@\w+").unwrap();
     }
 
     client.identify()?;
@@ -208,6 +209,31 @@ async fn irc_loop(
             if PING_NICK_1.is_match(message) {
                 if let Some(mat) = PING_NICK_1.find(message) {
                     let slice = &message[mat.start()..mat.end() - 1];
+                    if id_cache.get(slice).is_none() {
+                        let mut found = false;
+                        for member in &members {
+                            let nick = match &member.nick {
+                                Some(s) => s.to_owned(),
+                                None => member.user.name.clone(),
+                            };
+
+                            if nick == slice {
+                                found = true;
+                                let id = member.user.id.0;
+                                id_cache.insert(nickname.to_string(), Some(id));
+                                break;
+                            }
+                        }
+
+                        if !found {
+                            id_cache.insert(nickname.to_string(), None);
+                        }
+                    }
+                }
+            }
+            if PING_RE_2.is_match(message) {
+                if let Some(mat) = PING_RE_2.find(message) {
+                    let slice = &message[mat.start()+1..mat.end()];
                     if id_cache.get(slice).is_none() {
                         let mut found = false;
                         for member in &members {
@@ -261,7 +287,7 @@ async fn irc_loop(
                         }
                         if let Some(cached) = id_cache.get(nickname) {
                             if let &Some(id) = cached {
-                                w.content(PING_NICK_1.replace(message, format!("<@{}>", id)));
+                                w.content(PING_NICK_1.replace(&PING_RE_2.replace(message, format!("<@{}>", id)), format!("<@{}>", id)));
                             } else {
                                 w.content(message);
                             }
@@ -281,7 +307,7 @@ async fn irc_loop(
                                 format!(
                                     "{}: {}",
                                     nickname,
-                                    PING_NICK_1.replace(message, format!("<@{}>", id))
+                                    PING_NICK_1.replace(&PING_RE_2.replace(message, format!("<@{}>", id)), format!("<@{}>", id))
                                 ),
                             )
                             .await?;
