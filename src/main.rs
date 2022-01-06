@@ -20,8 +20,8 @@ use irc::{
     proto::Command,
 };
 
-use regex::Regex;
 use lazy_static::lazy_static;
+use regex::Regex;
 
 use serde::Deserialize;
 
@@ -205,31 +205,31 @@ async fn irc_loop(
         print!("{}", orig_message);
         if let Command::PRIVMSG(_, ref message) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
-                if PING_NICK_1.is_match(message) {
-                    if let Some(mat) = PING_NICK_1.find(message) {
-                        let slice = &message[mat.start()..mat.end() - 1];
-                        if id_cache.get(slice).is_none() {
-                            let mut found = false;
-                            for member in &members {
-                                let nick = match &member.nick {
-                                    Some(s) => s.to_owned(),
-                                    None => member.user.name.clone()
-                                };
+            if PING_NICK_1.is_match(message) {
+                if let Some(mat) = PING_NICK_1.find(message) {
+                    let slice = &message[mat.start()..mat.end() - 1];
+                    if id_cache.get(slice).is_none() {
+                        let mut found = false;
+                        for member in &members {
+                            let nick = match &member.nick {
+                                Some(s) => s.to_owned(),
+                                None => member.user.name.clone(),
+                            };
 
-                                if nick == slice {
-                                    found = true;
-                                    let id = member.user.id.0;
-                                    id_cache.insert(nickname.to_string(), Some(id));
-                                    break;
-                                }
+                            if nick == slice {
+                                found = true;
+                                let id = member.user.id.0;
+                                id_cache.insert(nickname.to_string(), Some(id));
+                                break;
                             }
+                        }
 
-                            if !found {
-                                id_cache.insert(nickname.to_string(), None);
-                            }
+                        if !found {
+                            id_cache.insert(nickname.to_string(), None);
                         }
                     }
                 }
+            }
             if let Some(ref webhook) = webhook {
                 if avatar_cache.get(nickname).is_none() {
                     let mut found = false;
@@ -251,7 +251,6 @@ async fn irc_loop(
                         avatar_cache.insert(nickname.to_string(), None); // user is not in the guild
                     }
                 }
-
 
                 webhook
                     .execute(&http, false, |w| {
@@ -277,7 +276,14 @@ async fn irc_loop(
                 if let Some(cached) = id_cache.get(nickname) {
                     if let &Some(id) = cached {
                         channel_id
-                            .say(&http, format!("{}: {}", nickname, PING_NICK_1.replace(message, format!("<@{}>", id))))
+                            .say(
+                                &http,
+                                format!(
+                                    "{}: {}",
+                                    nickname,
+                                    PING_NICK_1.replace(message, format!("<@{}>", id))
+                                ),
+                            )
                             .await?;
                     } else {
                         channel_id
