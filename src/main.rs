@@ -195,7 +195,7 @@ async fn irc_loop(
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
 
     lazy_static! {
-        static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+:").unwrap();
+        static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
     }
 
     client.identify()?;
