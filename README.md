@@ -8,4 +8,5 @@ TODO:
 - [x] `irc` crate config toml
 - [x] handle attachments properly
 - [x] don't ping IRC users (and color IRC usernames)
-- [ ] handle discord pings
+- [x] handle multiple pings
+- [ ] multiple channels
