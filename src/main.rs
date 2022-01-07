@@ -209,7 +209,7 @@ async fn irc_loop(
             let mut mentioned_1: Option<u64> = None;
             if PING_NICK_1.is_match(message) {
                 if let Some(mat) = PING_NICK_1.find(message) {
-                    let slice = &message[mat.start()..mat.end()-1];
+                    let slice = &message[mat.start()..mat.end() - 1];
                     if let Some(id) = id_cache.get(slice) {
                         mentioned_1 = id.to_owned();
                     } else {
@@ -217,7 +217,7 @@ async fn irc_loop(
                         for member in &members {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
-                                None => member.user.name.clone()
+                                None => member.user.name.clone(),
                             };
 
                             if nick == slice {
@@ -231,12 +231,11 @@ async fn irc_loop(
                             mentioned_1 = None;
                         }
                     }
-                    
                 }
             }
             if PING_RE_2.is_match(message) {
                 for mat in PING_RE_2.find_iter(message) {
-                    let slice = &message[mat.start()+1..mat.end()];
+                    let slice = &message[mat.start() + 1..mat.end()];
                     dbg!(slice);
                     if id_cache.get(slice).is_none() {
                         let mut found = false;
@@ -291,18 +290,22 @@ async fn irc_loop(
                         }
 
                         let mut computed = message.to_string();
-                        
+
                         for mat in PING_RE_2.find_iter(message) {
-                            let slice = &message[mat.start()+1..mat.end()];
+                            let slice = &message[mat.start() + 1..mat.end()];
                             if let Some(cached) = id_cache.get(slice) {
                                 if let &Some(id) = cached {
-                                    computed = PING_RE_2.replace(&computed, format!("<@{}>", id)).to_string();
+                                    computed = PING_RE_2
+                                        .replace(&computed, format!("<@{}>", id))
+                                        .to_string();
                                 }
                             }
                         }
 
                         if let Some(id) = mentioned_1 {
-                            computed = PING_NICK_1.replace(&computed, format!("<@{}>", id)).to_string();
+                            computed = PING_NICK_1
+                                .replace(&computed, format!("<@{}>", id))
+                                .to_string();
                         }
 
                         w.username(nickname);
@@ -311,20 +314,24 @@ async fn irc_loop(
                     })
                     .await?;
             } else {
-                        let mut computed = message.to_string();
-                        
-                        for mat in PING_RE_2.find_iter(message) {
-                            let slice = &message[mat.start()+1..mat.end()];
-                            if let Some(cached) = id_cache.get(slice) {
-                                if let &Some(id) = cached {
-                                    computed = PING_RE_2.replace(&computed, format!("<@{}>", id)).to_string();
-                                }
-                            }
-                        }
+                let mut computed = message.to_string();
 
-                        if let Some(id) = mentioned_1 {
-                            computed = PING_NICK_1.replace(&computed, format!("<@{}>", id)).to_string();
+                for mat in PING_RE_2.find_iter(message) {
+                    let slice = &message[mat.start() + 1..mat.end()];
+                    if let Some(cached) = id_cache.get(slice) {
+                        if let &Some(id) = cached {
+                            computed = PING_RE_2
+                                .replace(&computed, format!("<@{}>", id))
+                                .to_string();
                         }
+                    }
+                }
+
+                if let Some(id) = mentioned_1 {
+                    computed = PING_NICK_1
+                        .replace(&computed, format!("<@{}>", id))
+                        .to_string();
+                }
 
                 channel_id
                     .say(&http, format!("<{}> {}", nickname, computed))
