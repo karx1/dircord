@@ -12,6 +12,7 @@ use serenity::{
         webhook::Webhook,
     },
     prelude::*,
+    utils::{content_safe, ContentSafeOptions},
     Client as DiscordClient,
 };
 
@@ -82,8 +83,16 @@ impl EventHandler for Handler {
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
 
+        let opts = ContentSafeOptions::new()
+            .clean_role(true)
+            .clean_user(true)
+            .clean_channel(true)
+            .show_discriminator(false);
+
+        let cleaned = content_safe(ctx.cache, msg.content, &opts).await;
+
         if user_id != msg.author.id && !msg.author.bot {
-            send_irc_message(&sender, &format!("<{}> {}", new_nick, msg.content))
+            send_irc_message(&sender, &format!("<{}> {}", new_nick, cleaned))
                 .await
                 .unwrap();
             for attachment in attachments {
