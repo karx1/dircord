@@ -196,7 +196,7 @@ async fn irc_loop(
 
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"@\w+").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"@[^0-9\s]+").unwrap();
     }
 
     client.identify()?;
@@ -206,34 +206,38 @@ async fn irc_loop(
         print!("{}", orig_message);
         if let Command::PRIVMSG(_, ref message) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
+            let mut mentioned_1: Option<u64> = None;
             if PING_NICK_1.is_match(message) {
                 if let Some(mat) = PING_NICK_1.find(message) {
-                    let slice = &message[mat.start()..mat.end() - 1];
-                    if id_cache.get(slice).is_none() {
+                    let slice = &message[mat.start()..mat.end()-1];
+                    if let Some(id) = id_cache.get(slice) {
+                        mentioned_1 = id.to_owned();
+                    } else {
                         let mut found = false;
                         for member in &members {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
-                                None => member.user.name.clone(),
+                                None => member.user.name.clone()
                             };
 
                             if nick == slice {
                                 found = true;
                                 let id = member.user.id.0;
-                                id_cache.insert(nickname.to_string(), Some(id));
-                                break;
+                                mentioned_1 = Some(id);
                             }
                         }
 
                         if !found {
-                            id_cache.insert(nickname.to_string(), None);
+                            mentioned_1 = None;
                         }
                     }
+                    
                 }
             }
             if PING_RE_2.is_match(message) {
-                if let Some(mat) = PING_RE_2.find(message) {
+                for mat in PING_RE_2.find_iter(message) {
                     let slice = &message[mat.start()+1..mat.end()];
+                    dbg!(slice);
                     if id_cache.get(slice).is_none() {
                         let mut found = false;
                         for member in &members {
@@ -245,13 +249,13 @@ async fn irc_loop(
                             if nick == slice {
                                 found = true;
                                 let id = member.user.id.0;
-                                id_cache.insert(nickname.to_string(), Some(id));
+                                id_cache.insert(slice.to_string(), Some(id));
                                 break;
                             }
                         }
 
                         if !found {
-                            id_cache.insert(nickname.to_string(), None);
+                            id_cache.insert(slice.to_string(), None);
                         }
                     }
                 }
@@ -285,42 +289,46 @@ async fn irc_loop(
                                 w.avatar_url(url);
                             }
                         }
-                        if let Some(cached) = id_cache.get(nickname) {
-                            if let &Some(id) = cached {
-                                w.content(PING_NICK_1.replace(&PING_RE_2.replace(message, format!("<@{}>", id)), format!("<@{}>", id)));
-                            } else {
-                                w.content(message);
+
+                        let mut computed = message.to_string();
+                        
+                        for mat in PING_RE_2.find_iter(message) {
+                            let slice = &message[mat.start()+1..mat.end()];
+                            if let Some(cached) = id_cache.get(slice) {
+                                if let &Some(id) = cached {
+                                    computed = PING_RE_2.replace(&computed, format!("<@{}>", id)).to_string();
+                                }
                             }
-                        } else {
-                            w.content(message);
                         }
+
+                        if let Some(id) = mentioned_1 {
+                            computed = PING_NICK_1.replace(&computed, format!("<@{}>", id)).to_string();
+                        }
+
                         w.username(nickname);
+                        w.content(computed);
                         w
                     })
                     .await?;
             } else {
-                if let Some(cached) = id_cache.get(nickname) {
-                    if let &Some(id) = cached {
-                        channel_id
-                            .say(
-                                &http,
-                                format!(
-                                    "{}: {}",
-                                    nickname,
-                                    PING_NICK_1.replace(&PING_RE_2.replace(message, format!("<@{}>", id)), format!("<@{}>", id))
-                                ),
-                            )
-                            .await?;
-                    } else {
-                        channel_id
-                            .say(&http, format!("{}: {}", nickname, message))
-                            .await?;
-                    }
-                } else {
-                    channel_id
-                        .say(&http, format!("{}: {}", nickname, message))
-                        .await?;
-                }
+                        let mut computed = message.to_string();
+                        
+                        for mat in PING_RE_2.find_iter(message) {
+                            let slice = &message[mat.start()+1..mat.end()];
+                            if let Some(cached) = id_cache.get(slice) {
+                                if let &Some(id) = cached {
+                                    computed = PING_RE_2.replace(&computed, format!("<@{}>", id)).to_string();
+                                }
+                            }
+                        }
+
+                        if let Some(id) = mentioned_1 {
+                            computed = PING_NICK_1.replace(&computed, format!("<@{}>", id)).to_string();
+                        }
+
+                channel_id
+                    .say(&http, format!("<{}> {}", nickname, computed))
+                    .await?;
             }
         } else if let Command::JOIN(_, _, _) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
