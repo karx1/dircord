@@ -9,5 +9,5 @@ TODO:
 - [x] handle attachments properly
 - [x] don't ping IRC users (and color IRC usernames)
 - [x] handle discord pings
-- [ ] handle multiple pings
+- [x] handle multiple pings
 - [ ] multiple channels
