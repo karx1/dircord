@@ -7,13 +7,15 @@ use serenity::{
     model::{
         channel::Message,
         guild::Member,
-        id::{ChannelId, UserId},
+        id::{ChannelId, GuildId, UserId},
         prelude::Ready,
         webhook::Webhook,
     },
     prelude::*,
     Client as DiscordClient,
 };
+
+use tokio::sync::Mutex;
 
 use irc::{
     client::{data::Config, Client as IrcClient, Sender},
@@ -91,7 +93,7 @@ impl EventHandler for Handler {
             for mat in PING_RE_1.find_iter(&msg.content) {
                 let slice = &msg.content[mat.start() + 2..mat.end() - 1];
                 let id = slice.parse::<u64>().unwrap();
-                for member in &*members {
+                for member in &*members.lock().await {
                     if id == member.user.id.0 {
                         let nick = {
                             match &member.nick {
@@ -108,7 +110,7 @@ impl EventHandler for Handler {
             for mat in PING_RE_2.find_iter(&msg.content) {
                 let slice = &msg.content[mat.start() + 3..mat.end() - 1];
                 let id = slice.parse::<u64>().unwrap();
-                for member in &*members {
+                for member in &*members.lock().await {
                     if id == member.user.id.0 {
                         let nick = {
                             match &member.nick {
@@ -163,6 +165,17 @@ impl EventHandler for Handler {
         let mut data = ctx.data.write().await;
         data.insert::<UserIdKey>(id);
     }
+
+    async fn guild_member_addition(&self, ctx: Context, _: GuildId, new_member: Member) {
+        let members = {
+            let data = ctx.data.read().await;
+            let members = data.get::<MembersKey>().unwrap().to_owned();
+
+            members
+        };
+
+        members.lock().await.push(new_member);
+    }
 }
 
 struct HttpKey;
@@ -188,7 +201,7 @@ impl TypeMapKey for SenderKey {
 }
 
 impl TypeMapKey for MembersKey {
-    type Value = Arc<Vec<Member>>;
+    type Value = Arc<Mutex<Vec<Member>>>;
 }
 
 #[tokio::main]
@@ -219,7 +232,7 @@ async fn main() -> anyhow::Result<()> {
 
     let http = discord_client.cache_and_http.http.clone();
 
-    let members = Arc::new(
+    let members = Arc::new(Mutex::new(
         channel_id
             .to_channel(discord_client.cache_and_http.clone())
             .await?
@@ -228,7 +241,7 @@ async fn main() -> anyhow::Result<()> {
             .guild_id
             .members(&http, None, None)
             .await?,
-    );
+    ));
 
     {
         let mut data = discord_client.data.write().await;
@@ -260,7 +273,7 @@ async fn irc_loop(
     http: Arc<Http>,
     channel_id: ChannelId,
     webhook: Option<Webhook>,
-    members: Arc<Vec<Member>>,
+    members: Arc<Mutex<Vec<Member>>>,
 ) -> anyhow::Result<()> {
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
@@ -285,7 +298,7 @@ async fn irc_loop(
                         mentioned_1 = id.to_owned();
                     } else {
                         let mut found = false;
-                        for member in &*members {
+                        for member in &*members.lock().await {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
                                 None => member.user.name.clone(),
@@ -310,7 +323,7 @@ async fn irc_loop(
                     dbg!(slice);
                     if id_cache.get(slice).is_none() {
                         let mut found = false;
-                        for member in &*members {
+                        for member in &*members.lock().await {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
                                 None => member.user.name.clone(),
@@ -333,7 +346,7 @@ async fn irc_loop(
             if let Some(ref webhook) = webhook {
                 if avatar_cache.get(nickname).is_none() {
                     let mut found = false;
-                    for member in &*members {
+                    for member in &*members.lock().await {
                         let nick = match &member.nick {
                             Some(s) => s.to_owned(),
                             None => member.user.name.clone(),
