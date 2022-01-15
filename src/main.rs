@@ -248,6 +248,7 @@ async fn main() -> anyhow::Result<()> {
         let mut data = discord_client.data.write().await;
         data.insert::<SenderKey>(irc_client.sender());
         data.insert::<MembersKey>(members.clone());
+        data.insert::<ChannelIdKey>(channel_id);
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
