@@ -12,7 +12,6 @@ use serenity::{
         webhook::Webhook,
     },
     prelude::*,
-    utils::{content_safe, ContentSafeOptions},
     Client as DiscordClient,
 };
 
@@ -68,29 +67,82 @@ impl EventHandler for Handler {
             new_nick.push_str(&formatted);
         }
         new_nick.push_str("\x030");
-        println!("{:#?}", new_nick);
 
-        let (user_id, sender) = {
+        let (user_id, sender, members) = {
             let data = ctx.data.read().await;
 
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
             let sender = data.get::<SenderKey>().unwrap().to_owned();
+            let members = data.get::<MembersKey>().unwrap().to_owned();
 
-            (user_id, sender)
+            (user_id, sender, members)
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
 
-        let opts = ContentSafeOptions::new()
-            .clean_role(true)
-            .clean_user(true)
-            .clean_channel(true)
-            .show_discriminator(false);
+        lazy_static! {
+            static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
+            static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
+        }
 
-        let cleaned = content_safe(ctx.cache, msg.content, &opts).await;
+        let mut id_cache: HashMap<u64, String> = HashMap::new();
+
+        if PING_RE_1.is_match(&msg.content) {
+            for mat in PING_RE_1.find_iter(&msg.content) {
+                let slice = &msg.content[mat.start() + 2..mat.end()-1];
+                let id = slice.parse::<u64>().unwrap();
+                for member in &*members {
+                    if id == member.user.id.0 {
+                        let nick = {
+                            match &member.nick {
+                                Some(n) => n.clone(),
+                                None => member.user.name.clone()
+                            }
+                        };
+
+                        id_cache.insert(id, nick);
+                    }
+                }
+            }
+        } else if PING_RE_2.is_match(&msg.content) {
+            for mat in PING_RE_2.find_iter(&msg.content) {
+                let slice = &msg.content[mat.start() + 3..mat.end()-1];
+                let id = slice.parse::<u64>().unwrap();
+                for member in &*members {
+                    if id == member.user.id.0 {
+                        let nick = {
+                            match &member.nick {
+                                Some(n) => n.clone(),
+                                None => member.user.name.clone()
+                            } 
+                        };
+
+                        id_cache.insert(id, nick);
+                    }
+                }
+            }
+        }
+
+        let mut computed = msg.content.clone();
+
+        for mat in PING_RE_1.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start() + 2..mat.end()-1];
+            let id = slice.parse::<u64>().unwrap();
+            if let Some(cached) = id_cache.get(&id) {
+                computed = PING_RE_1.replace(&computed, format!("@{}", cached)).to_string();
+            }
+        }
+
+        for mat in PING_RE_2.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start() + 3..mat.end()-1];
+            let id = slice.parse::<u64>().unwrap();
+            if let Some(cached) = id_cache.get(&id) {
+                computed = PING_RE_2.replace(&computed, format!("@{}", cached)).to_string();
+            }
+        }
 
         if user_id != msg.author.id && !msg.author.bot {
-            send_irc_message(&sender, &format!("<{}> {}", new_nick, cleaned))
+            send_irc_message(&sender, &format!("<{}> {}", new_nick, computed))
                 .await
                 .unwrap();
             for attachment in attachments {
@@ -113,6 +165,7 @@ struct HttpKey;
 struct ChannelIdKey;
 struct UserIdKey;
 struct SenderKey;
+struct MembersKey;
 
 impl TypeMapKey for HttpKey {
     type Value = Arc<Http>;
@@ -128,6 +181,10 @@ impl TypeMapKey for UserIdKey {
 
 impl TypeMapKey for SenderKey {
     type Value = Sender;
+}
+
+impl TypeMapKey for MembersKey {
+    type Value = Arc<Vec<Member>>;
 }
 
 #[tokio::main]
@@ -158,18 +215,19 @@ async fn main() -> anyhow::Result<()> {
 
     let http = discord_client.cache_and_http.http.clone();
 
-    let members = channel_id
+    let members = Arc::new(channel_id
         .to_channel(discord_client.cache_and_http.clone())
         .await?
         .guild()
         .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
         .guild_id
         .members(&http, None, None)
-        .await?;
+        .await?);
 
     {
         let mut data = discord_client.data.write().await;
         data.insert::<SenderKey>(irc_client.sender());
+        data.insert::<MembersKey>(members.clone());
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
@@ -196,7 +254,7 @@ async fn irc_loop(
     http: Arc<Http>,
     channel_id: ChannelId,
     webhook: Option<Webhook>,
-    members: Vec<Member>,
+    members: Arc<Vec<Member>>,
 ) -> anyhow::Result<()> {
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
@@ -221,7 +279,7 @@ async fn irc_loop(
                         mentioned_1 = id.to_owned();
                     } else {
                         let mut found = false;
-                        for member in &members {
+                        for member in &*members {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
                                 None => member.user.name.clone(),
@@ -246,7 +304,7 @@ async fn irc_loop(
                     dbg!(slice);
                     if id_cache.get(slice).is_none() {
                         let mut found = false;
-                        for member in &members {
+                        for member in &*members {
                             let nick = match &member.nick {
                                 Some(s) => s.to_owned(),
                                 None => member.user.name.clone(),
@@ -269,7 +327,7 @@ async fn irc_loop(
             if let Some(ref webhook) = webhook {
                 if avatar_cache.get(nickname).is_none() {
                     let mut found = false;
-                    for member in &members {
+                    for member in &*members {
                         let nick = match &member.nick {
                             Some(s) => s.to_owned(),
                             None => member.user.name.clone(),
