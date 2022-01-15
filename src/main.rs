@@ -89,14 +89,14 @@ impl EventHandler for Handler {
 
         if PING_RE_1.is_match(&msg.content) {
             for mat in PING_RE_1.find_iter(&msg.content) {
-                let slice = &msg.content[mat.start() + 2..mat.end()-1];
+                let slice = &msg.content[mat.start() + 2..mat.end() - 1];
                 let id = slice.parse::<u64>().unwrap();
                 for member in &*members {
                     if id == member.user.id.0 {
                         let nick = {
                             match &member.nick {
                                 Some(n) => n.clone(),
-                                None => member.user.name.clone()
+                                None => member.user.name.clone(),
                             }
                         };
 
@@ -106,15 +106,15 @@ impl EventHandler for Handler {
             }
         } else if PING_RE_2.is_match(&msg.content) {
             for mat in PING_RE_2.find_iter(&msg.content) {
-                let slice = &msg.content[mat.start() + 3..mat.end()-1];
+                let slice = &msg.content[mat.start() + 3..mat.end() - 1];
                 let id = slice.parse::<u64>().unwrap();
                 for member in &*members {
                     if id == member.user.id.0 {
                         let nick = {
                             match &member.nick {
                                 Some(n) => n.clone(),
-                                None => member.user.name.clone()
-                            } 
+                                None => member.user.name.clone(),
+                            }
                         };
 
                         id_cache.insert(id, nick);
@@ -126,18 +126,22 @@ impl EventHandler for Handler {
         let mut computed = msg.content.clone();
 
         for mat in PING_RE_1.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 2..mat.end()-1];
+            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
             let id = slice.parse::<u64>().unwrap();
             if let Some(cached) = id_cache.get(&id) {
-                computed = PING_RE_1.replace(&computed, format!("@{}", cached)).to_string();
+                computed = PING_RE_1
+                    .replace(&computed, format!("@{}", cached))
+                    .to_string();
             }
         }
 
         for mat in PING_RE_2.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 3..mat.end()-1];
+            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
             let id = slice.parse::<u64>().unwrap();
             if let Some(cached) = id_cache.get(&id) {
-                computed = PING_RE_2.replace(&computed, format!("@{}", cached)).to_string();
+                computed = PING_RE_2
+                    .replace(&computed, format!("@{}", cached))
+                    .to_string();
             }
         }
 
@@ -215,14 +219,16 @@ async fn main() -> anyhow::Result<()> {
 
     let http = discord_client.cache_and_http.http.clone();
 
-    let members = Arc::new(channel_id
-        .to_channel(discord_client.cache_and_http.clone())
-        .await?
-        .guild()
-        .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
-        .guild_id
-        .members(&http, None, None)
-        .await?);
+    let members = Arc::new(
+        channel_id
+            .to_channel(discord_client.cache_and_http.clone())
+            .await?
+            .guild()
+            .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
+            .guild_id
+            .members(&http, None, None)
+            .await?,
+    );
 
     {
         let mut data = discord_client.data.write().await;
