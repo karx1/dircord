@@ -54,9 +54,7 @@ impl EventHandler for Handler {
             }
         };
 
-        let mut b = [0; 1];
-        nick.chars().nth(0).unwrap().encode_utf8(&mut b);
-        let byte = b[0];
+        let byte = nick.chars().nth(0).unwrap() as u8;
 
         let colour_index = (byte as usize + nick.len()) % 12;
         let formatted = format!("\x03{:02}", colour_index);
