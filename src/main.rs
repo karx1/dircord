@@ -70,14 +70,15 @@ impl EventHandler for Handler {
         }
         new_nick.push_str("\x030");
 
-        let (user_id, sender, members) = {
+        let (user_id, sender, members, channel_id) = {
             let data = ctx.data.read().await;
 
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
             let sender = data.get::<SenderKey>().unwrap().to_owned();
             let members = data.get::<MembersKey>().unwrap().to_owned();
+            let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
 
-            (user_id, sender, members)
+            (user_id, sender, members, channel_id)
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
@@ -147,7 +148,7 @@ impl EventHandler for Handler {
             }
         }
 
-        if user_id != msg.author.id && !msg.author.bot {
+        if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
             send_irc_message(&sender, &format!("<{}> {}", new_nick, computed))
                 .await
                 .unwrap();
