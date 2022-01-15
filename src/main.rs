@@ -70,6 +70,9 @@ impl EventHandler for Handler {
         }
         new_nick.push_str("\x030");
 
+        let nick_bytes = new_nick.len() + 1; // +1 for the space
+        let content_limit = 510 - nick_bytes;
+
         let (user_id, sender, members, channel_id) = {
             let data = ctx.data.read().await;
 
@@ -148,10 +151,16 @@ impl EventHandler for Handler {
             }
         }
 
+        let chars = computed.as_bytes().iter().map(|&b| b as char).collect::<Vec<char>>();
+        let chunks = chars.chunks(content_limit);
+
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
-            send_irc_message(&sender, &format!("<{}> {}", new_nick, computed))
-                .await
-                .unwrap();
+            for chunk in chunks {
+                let to_send = String::from_iter(chunk.iter());
+                send_irc_message(&sender, &format!("<{}> {}", new_nick, to_send))
+                    .await
+                    .unwrap();
+            }
             for attachment in attachments {
                 send_irc_message(&sender, &format!("<{}> {}", new_nick, attachment))
                     .await
