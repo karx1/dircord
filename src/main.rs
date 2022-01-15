@@ -281,6 +281,7 @@ async fn irc_loop(
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
         static ref PING_RE_2: Regex = Regex::new(r"@[^0-9\s]+").unwrap();
+        static ref CONTROL_CHAR_RE: Regex = Regex::new(r"\\x1f|\\x02|\\x12|\\x0f|\\x16|\\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
     }
 
     client.identify()?;
@@ -391,6 +392,8 @@ async fn irc_loop(
                                 .replace(&computed, format!("<@{}>", id))
                                 .to_string();
                         }
+
+                        computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
 
                         w.username(nickname);
                         w.content(computed);
