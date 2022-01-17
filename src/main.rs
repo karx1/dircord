@@ -149,6 +149,9 @@ impl EventHandler for Handler {
             }
         }
 
+        computed = computed.replace('\n', " ");
+        computed = computed.replace("\r\n", " "); // just in case
+
         let chars = computed.as_bytes().iter().map(|&b| b as char).collect::<Vec<char>>();
         let chunks = chars.chunks(content_limit);
 
