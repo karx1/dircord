@@ -60,17 +60,15 @@ impl EventHandler for Handler {
         let colour_index = (byte as usize + nick.len()) % 12;
         let formatted = format!("\x03{:02}", colour_index);
 
-        let mut new_nick = String::with_capacity(nick.len());
-        new_nick.push_str(&formatted);
+        let mut new_nick = String::with_capacity(formatted.len() + nick.len() + 2);
 
-        for char in nick.chars() {
-            new_nick.push(char);
-            new_nick.push('\u{200B}');
-            new_nick.push_str(&formatted);
-        }
+        new_nick.push_str(&formatted);
+        new_nick.push_str(&nick);
         new_nick.push_str("\x030");
 
-        let nick_bytes = new_nick.len() + 1; // +1 for the space
+        new_nick = format!("{}\u{200B}{}", &new_nick[..formatted.len() + 1], &new_nick[formatted.len() + 1..]);
+
+        let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
         let content_limit = 510 - nick_bytes;
 
         let (user_id, sender, members, channel_id) = {
