@@ -67,7 +67,11 @@ impl EventHandler for Handler {
         new_nick.push_str(&nick);
         new_nick.push_str("\x030");
 
-        new_nick = format!("{}\u{200B}{}", &new_nick[..formatted.len() + 1], &new_nick[formatted.len() + 1..]);
+        new_nick = format!(
+            "{}\u{200B}{}",
+            &new_nick[..formatted.len() + 1],
+            &new_nick[formatted.len() + 1..]
+        );
 
         let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
         let content_limit = 510 - nick_bytes;
@@ -154,7 +158,11 @@ impl EventHandler for Handler {
         computed = computed.replace('\n', " ");
         computed = computed.replace("\r\n", " "); // just in case
 
-        let chars = computed.as_bytes().iter().map(|&b| b as char).collect::<Vec<char>>();
+        let chars = computed
+            .as_bytes()
+            .iter()
+            .map(|&b| b as char)
+            .collect::<Vec<char>>();
         let chunks = chars.chunks(content_limit);
 
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
@@ -301,7 +309,8 @@ async fn irc_loop(
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
         static ref PING_RE_2: Regex = Regex::new(r"@[^0-9\s]+").unwrap();
-        static ref CONTROL_CHAR_RE: Regex = Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
+        static ref CONTROL_CHAR_RE: Regex =
+            Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
     }
 
     client.identify()?;
