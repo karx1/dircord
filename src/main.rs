@@ -34,9 +34,10 @@ struct DircordConfig {
     nickname: Option<String>,
     server: String,
     port: Option<u16>,
-    channels: Vec<String>,
+    channel: String,
     mode: Option<String>,
     tls: Option<bool>,
+    channel_id: u64,
 }
 
 struct Handler;
@@ -71,15 +72,16 @@ impl EventHandler for Handler {
         let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
         let content_limit = 510 - nick_bytes;
 
-        let (user_id, sender, members, channel_id) = {
+        let (user_id, sender, members, channel_id, channel) = {
             let data = ctx.data.read().await;
 
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
             let sender = data.get::<SenderKey>().unwrap().to_owned();
             let members = data.get::<MembersKey>().unwrap().to_owned();
             let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
+            let channel = data.get::<StringKey>().unwrap().to_owned();
 
-            (user_id, sender, members, channel_id)
+            (user_id, sender, members, channel_id, channel)
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
@@ -158,12 +160,12 @@ impl EventHandler for Handler {
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
             for chunk in chunks {
                 let to_send = String::from_iter(chunk.iter());
-                send_irc_message(&sender, &format!("<{}> {}", new_nick, to_send))
+                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, to_send))
                     .await
                     .unwrap();
             }
             for attachment in attachments {
-                send_irc_message(&sender, &format!("<{}> {}", new_nick, attachment))
+                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, attachment))
                     .await
                     .unwrap();
             }
@@ -194,6 +196,7 @@ struct ChannelIdKey;
 struct UserIdKey;
 struct SenderKey;
 struct MembersKey;
+struct StringKey;
 
 impl TypeMapKey for HttpKey {
     type Value = Arc<Http>;
@@ -215,6 +218,10 @@ impl TypeMapKey for MembersKey {
     type Value = Arc<Mutex<Vec<Member>>>;
 }
 
+impl TypeMapKey for StringKey {
+    type Value = String;
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let filename = env::args().nth(1).unwrap_or(String::from("config.toml"));
@@ -227,13 +234,13 @@ async fn main() -> anyhow::Result<()> {
         .event_handler(Handler)
         .await?;
 
-    let channel_id = ChannelId(831255708875751477);
+    let channel_id = ChannelId(conf.channel_id);
 
     let config = Config {
         nickname: conf.nickname,
         server: Some(conf.server),
         port: conf.port,
-        channels: conf.channels,
+        channels: vec![conf.channel.clone()],
         use_tls: conf.tls,
         umodes: conf.mode,
         ..Config::default()
@@ -259,6 +266,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<SenderKey>(irc_client.sender());
         data.insert::<MembersKey>(members.clone());
         data.insert::<ChannelIdKey>(channel_id);
+        data.insert::<StringKey>(conf.channel);
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
@@ -275,8 +283,8 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn send_irc_message(sender: &Sender, content: &str) -> anyhow::Result<()> {
-    sender.send_privmsg("#no-normies", content)?;
+async fn send_irc_message(sender: &Sender, channel: &str, content: &str) -> anyhow::Result<()> {
+    sender.send_privmsg(channel, content)?;
     Ok(())
 }
 
