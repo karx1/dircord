@@ -335,6 +335,7 @@ async fn irc_loop(
         static ref PING_RE_2: Regex = Regex::new(r"@[^0-9\s]+").unwrap();
         static ref CONTROL_CHAR_RE: Regex =
             Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
+        static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
     }
 
     client.identify()?;
@@ -447,6 +448,10 @@ async fn irc_loop(
                         }
 
                         computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
+
+                        if WHITESPACE_RE.is_match(&computed) {
+                            computed = format!("`{}`", computed);
+                        }
 
                         w.username(nickname);
                         w.content(computed);
