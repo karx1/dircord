@@ -25,6 +25,8 @@ use irc::{
 use lazy_static::lazy_static;
 use regex::Regex;
 
+use pulldown_cmark::Parser;
+
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -156,7 +158,27 @@ impl EventHandler for Handler {
             }
         }
 
-        let mut computed = msg.content.clone();
+        let mut computed = String::new();
+
+        {
+            use pulldown_cmark::Event::*;
+            use pulldown_cmark::Tag::*;
+            let parser = Parser::new(&msg.content);
+
+            for event in parser {
+                match event {
+                    Text(t) | Html(t) | Code(t) => computed.push_str(&t),
+                    End(_) => computed.push('\x0F'),
+                    Start(tag) => match tag {
+                        Emphasis => computed.push('\x1D'),
+                        Strong => computed.push('\x02'),
+                        Link(_, dest, _) => computed.push_str(&dest),
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+        }
 
         for mat in PING_RE_1.find_iter(&msg.content) {
             let slice = &msg.content[mat.start() + 2..mat.end() - 1];
