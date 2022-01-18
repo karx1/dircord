@@ -90,6 +90,30 @@ impl EventHandler for Handler {
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
 
+        if msg.content.starts_with("```") {
+            let mut lines = msg.content.split("\n").collect::<Vec<&str>>();
+            // remove the backticks
+            lines.remove(lines.len() - 1);
+            lines.remove(0);
+
+            if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
+                for line in lines {
+                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, line))
+                        .await
+                        .unwrap();
+                }
+
+                for attachment in attachments {
+                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, attachment))
+                        .await
+                        .unwrap();
+                }
+            }
+
+            return;
+        }
+
+
         lazy_static! {
             static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
             static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
