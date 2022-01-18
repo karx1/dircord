@@ -538,6 +538,41 @@ async fn irc_loop(
                         .to_string();
                 }
 
+                let mut has_opened_bold = false;
+                            let mut has_opened_italic = false;
+                    
+                            for c in computed.clone().chars() {
+                                if c == '\x02' {
+                                    computed = computed.replace('\x02', "**");
+                                    has_opened_bold = true;
+                                }
+                    
+                                if c == '\x1D' {
+                                    computed = computed.replace('\x1D', "*");
+                                    has_opened_italic = true;
+                                }
+                    
+                                if c == '\x0F' {
+                                    if has_opened_italic {
+                                        computed = computed.replace('\x0F', "*");
+                                        has_opened_italic = false;
+                                    } else if has_opened_bold {
+                                        computed = computed.replace('\x0F', "**");
+                                        has_opened_bold = false;
+                                    }
+                                }
+                            }
+
+                            if has_opened_italic {
+                                computed.push_str("*");
+                                has_opened_italic = false;
+                            }
+
+                            if has_opened_bold {
+                                computed.push_str("**");
+                                has_opened_bold = false;
+                            }
+
                 channel_id
                     .say(&http, format!("<{}> {}", nickname, computed))
                     .await?;
