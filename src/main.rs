@@ -113,7 +113,6 @@ impl EventHandler for Handler {
             return;
         }
 
-
         lazy_static! {
             static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
             static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
