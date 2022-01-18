@@ -428,30 +428,32 @@ async fn irc_loop(
                         }
 
                         let mut computed = message.to_string();
-
-                        for mat in PING_RE_2.find_iter(message) {
-                            let slice = &message[mat.start() + 1..mat.end()];
-                            if let Some(cached) = id_cache.get(slice) {
-                                if let &Some(id) = cached {
-                                    computed = PING_RE_2
-                                        .replace(&computed, format!("<@{}>", id))
-                                        .to_string();
-                                }
-                            }
-                        }
-
-                        if let Some(id) = mentioned_1 {
-                            computed = PING_NICK_1
-                                .replace(&computed, format!("<@{}>", id))
-                                .to_string();
-                        }
-
-                        computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
-
+                        let mut is_code = false;
                         if WHITESPACE_RE.is_match(&computed) {
                             computed = format!("`{}`", computed);
+                            is_code = true;
                         }
 
+                        if !is_code {
+                            for mat in PING_RE_2.find_iter(message) {
+                                let slice = &message[mat.start() + 1..mat.end()];
+                                if let Some(cached) = id_cache.get(slice) {
+                                    if let &Some(id) = cached {
+                                        computed = PING_RE_2
+                                            .replace(&computed, format!("<@{}>", id))
+                                            .to_string();
+                                    }
+                                }
+                            }
+
+                            if let Some(id) = mentioned_1 {
+                                computed = PING_NICK_1
+                                    .replace(&computed, format!("<@{}>", id))
+                                    .to_string();
+                            }
+
+                            computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
+                        }
                         w.username(nickname);
                         w.content(computed);
                         w
