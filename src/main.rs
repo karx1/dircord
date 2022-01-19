@@ -211,6 +211,19 @@ impl EventHandler for Handler {
         let chunks = chars.chunks(content_limit);
 
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
+            if let Some(reply) = msg.referenced_message {
+                // let to_send = format!("> {}...", reply.content.truncate(505));
+                let mut content = reply.content;
+                let to_send = if content.len() > 505 {
+                    content.truncate(505);
+                    format!("> {}...", content)
+                } else {
+                    format!("> {}", content)
+                };
+                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, to_send))
+                    .await
+                    .unwrap();
+            }
             for chunk in chunks {
                 let to_send = String::from_iter(chunk.iter());
                 send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, to_send))
