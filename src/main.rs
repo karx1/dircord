@@ -214,6 +214,8 @@ impl EventHandler for Handler {
             if let Some(reply) = msg.referenced_message {
                 // let to_send = format!("> {}...", reply.content.truncate(505));
                 let mut content = reply.content;
+                content = content.replace('\n', " ");
+                content = content.replace("\r\n", " "); // just in case
                 let to_send = if content.len() > 505 {
                     content.truncate(505);
                     format!("> {}...", content)
