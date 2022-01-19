@@ -212,12 +212,11 @@ impl EventHandler for Handler {
 
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
             if let Some(reply) = msg.referenced_message {
-                // let to_send = format!("> {}...", reply.content.truncate(505));
                 let mut content = reply.content;
                 content = content.replace('\n', " ");
                 content = content.replace("\r\n", " "); // just in case
-                let to_send = if content.len() > 505 {
-                    content.truncate(505);
+                let to_send = if content.len() > content_limit - 5 {
+                    content.truncate(content_limit = 5);
                     format!("> {}...", content)
                 } else {
                     format!("> {}", content)
