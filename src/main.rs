@@ -216,7 +216,7 @@ impl EventHandler for Handler {
                 content = content.replace('\n', " ");
                 content = content.replace("\r\n", " "); // just in case
                 let to_send = if content.len() > content_limit - 5 {
-                    content.truncate(content_limit = 5);
+                    content.truncate(content_limit - 5);
                     format!("> {}...", content)
                 } else {
                     format!("> {}", content)
