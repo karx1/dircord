@@ -67,7 +67,7 @@ impl EventHandler for Handler {
 
         new_nick.push_str(&formatted);
         new_nick.push_str(&nick);
-        new_nick.push_str("\x030");
+        new_nick.push('\x0F');
 
         new_nick = format!(
             "{}\u{200B}{}",
