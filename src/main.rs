@@ -167,7 +167,7 @@ impl EventHandler for Handler {
 
             for event in parser {
                 match event {
-                    Text(t) | Html(t) | Code(t) => computed.push_str(&t),
+                    Text(t) | Html(t) | Code(t) => computed.push_str(&format!("{} ", &t)),
                     End(_) => computed.push('\x0F'),
                     Start(tag) => match tag {
                         Emphasis => computed.push('\x1D'),
@@ -200,8 +200,6 @@ impl EventHandler for Handler {
             }
         }
 
-        computed = computed.replace('\n', " ");
-        computed = computed.replace("\r\n", " "); // just in case
 
         let chars = computed
             .as_bytes()
