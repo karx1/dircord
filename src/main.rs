@@ -392,7 +392,7 @@ async fn irc_loop(
                                 None => member.user.name.clone(),
                             };
 
-                            if nick == slice {
+                            if slice.starts_with(&nick) {
                                 found = true;
                                 let id = member.user.id.0;
                                 mentioned_1 = Some(id);
@@ -417,7 +417,7 @@ async fn irc_loop(
                                 None => member.user.name.clone(),
                             };
 
-                            if nick == slice {
+                            if slice.starts_with(&nick) {
                                 found = true;
                                 let id = member.user.id.0;
                                 id_cache.insert(slice.to_string(), Some(id));
