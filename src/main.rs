@@ -161,7 +161,6 @@ impl EventHandler for Handler {
         let mut computed = String::new();
         let mut replaced = msg.content.clone();
 
-        
         for mat in PING_RE_1.find_iter(&msg.content) {
             let slice = &msg.content[mat.start() + 2..mat.end() - 1];
             let id = slice.parse::<u64>().unwrap();
@@ -201,8 +200,6 @@ impl EventHandler for Handler {
                 }
             }
         }
-
-
 
         let chars = computed
             .as_bytes()
