@@ -159,11 +159,33 @@ impl EventHandler for Handler {
         }
 
         let mut computed = String::new();
+        let mut replaced = msg.content.clone();
+
+        
+        for mat in PING_RE_1.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
+            let id = slice.parse::<u64>().unwrap();
+            if let Some(cached) = id_cache.get(&id) {
+                replaced = PING_RE_1
+                    .replace(&replaced, format!("@{}", cached))
+                    .to_string();
+            }
+        }
+
+        for mat in PING_RE_2.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
+            let id = slice.parse::<u64>().unwrap();
+            if let Some(cached) = id_cache.get(&id) {
+                replaced = PING_RE_2
+                    .replace(&replaced, format!("@{}", cached))
+                    .to_string();
+            }
+        }
 
         {
             use pulldown_cmark::Event::*;
             use pulldown_cmark::Tag::*;
-            let parser = Parser::new(&msg.content);
+            let parser = Parser::new(&replaced);
 
             for event in parser {
                 match event {
@@ -180,25 +202,6 @@ impl EventHandler for Handler {
             }
         }
 
-        for mat in PING_RE_1.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
-            let id = slice.parse::<u64>().unwrap();
-            if let Some(cached) = id_cache.get(&id) {
-                computed = PING_RE_1
-                    .replace(&computed, format!("@{}", cached))
-                    .to_string();
-            }
-        }
-
-        for mat in PING_RE_2.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
-            let id = slice.parse::<u64>().unwrap();
-            if let Some(cached) = id_cache.get(&id) {
-                computed = PING_RE_2
-                    .replace(&computed, format!("@{}", cached))
-                    .to_string();
-            }
-        }
 
 
         let chars = computed
