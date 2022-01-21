@@ -210,16 +210,43 @@ impl EventHandler for Handler {
 
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
             if let Some(reply) = msg.referenced_message {
+                let rnick = {
+                    if let Some(member) = reply.member {
+                        match member.nick {
+                            Some(n) => n,
+                            None => reply.author.name,
+                        }
+                    } else {
+                        reply.author.name
+                    }
+                };
+                let byte = rnick.chars().nth(0).unwrap() as u8;
+
+                let colour_index = (byte as usize + rnick.len()) % 12;
+                let formatted = format!("\x03{:02}", colour_index);
+                let mut reply_nick = String::with_capacity(formatted.len() + rnick.len() + 2);
+
+                reply_nick.push_str(&formatted);
+                reply_nick.push_str(&rnick);
+                reply_nick.push('\x0F');
+
+                reply_nick = format!(
+                    "{}\u{200B}{}",
+                    &reply_nick[..formatted.len() + 1],
+                    &reply_nick[formatted.len() + 1..]
+                );
                 let mut content = reply.content;
                 content = content.replace('\n', " ");
                 content = content.replace("\r\n", " "); // just in case
-                let to_send = if content.len() > content_limit - 5 {
-                    content.truncate(content_limit - 5);
+                let reply_nick_bytes = reply_nick.len() + 3;
+                let reply_content_limit = 510 - reply_nick_bytes - 5;
+                let to_send = if content.len() > reply_content_limit {
+                    content.truncate(reply_content_limit);
                     format!("> {}...", content)
                 } else {
                     format!("> {}", content)
                 };
-                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, to_send))
+                send_irc_message(&sender, &channel, &format!("<{}> {}", reply_nick, to_send))
                     .await
                     .unwrap();
             }
