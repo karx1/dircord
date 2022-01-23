@@ -11,4 +11,4 @@ TODO:
 - [x] handle discord pings
 - [x] handle multiple pings
 - [ ] multiple channels
-- [ ] IRC and Discord formatting
+- [x] IRC and Discord formatting
