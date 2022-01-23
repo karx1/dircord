@@ -201,11 +201,7 @@ impl EventHandler for Handler {
             }
         }
 
-        let chars = computed
-            .as_bytes()
-            .iter()
-            .map(|&b| b as char)
-            .collect::<Vec<char>>();
+        let chars = computed.chars().collect::<Vec<char>>();
         let chunks = chars.chunks(content_limit);
 
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
