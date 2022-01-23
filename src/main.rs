@@ -546,12 +546,10 @@ async fn irc_loop(
 
                             if has_opened_italic {
                                 computed.push_str("*");
-                                has_opened_italic = false;
                             }
 
                             if has_opened_bold {
                                 computed.push_str("**");
-                                has_opened_bold = false;
                             }
 
                             computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
@@ -608,12 +606,10 @@ async fn irc_loop(
 
                 if has_opened_italic {
                     computed.push_str("*");
-                    has_opened_italic = false;
                 }
 
                 if has_opened_bold {
                     computed.push_str("**");
-                    has_opened_bold = false;
                 }
 
                 channel_id
