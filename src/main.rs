@@ -632,6 +632,14 @@ async fn irc_loop(
             channel_id
                 .say(&http, format!("*{}* has quit ({})", nickname, reason))
                 .await?;
+        } else if let Command::NICK(ref new_nick) = orig_message.command {
+            let old_nick = orig_message.source_nickname().unwrap();
+            channel_id
+                .say(
+                    &http,
+                    format!("*{}* is now known as *{}*", old_nick, new_nick),
+                )
+                .await?;
         }
     }
     Ok(())
