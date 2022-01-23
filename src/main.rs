@@ -118,6 +118,7 @@ impl EventHandler for Handler {
         lazy_static! {
             static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
             static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
+            static ref EMOJI_RE: Regex = Regex::new(r"<:\w+:[0-9]+>").unwrap();
         }
 
         let mut id_cache: HashMap<u64, String> = HashMap::new();
@@ -179,6 +180,16 @@ impl EventHandler for Handler {
                     .replace(&replaced, format!("@{}", cached))
                     .to_string();
             }
+        }
+
+        for mat in EMOJI_RE.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start()..mat.end()];
+
+            let parts = slice.split(':').collect::<Vec<&str>>();
+
+            let formatted = format!(":{}:", parts[1]); // ignore the opening bracket in [0]
+
+            replaced = EMOJI_RE.replace(&replaced, formatted).to_string();
         }
 
         {
