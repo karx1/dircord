@@ -424,10 +424,20 @@ async fn irc_loop(
         static ref CONTROL_CHAR_RE: Regex =
             Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
         static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
+        static ref CHANNEL_RE: Regex = Regex::new(r"#[A-Za-z-*]+").unwrap();
     }
 
     client.identify()?;
     let mut stream = client.stream()?;
+
+    let channels = channel_id
+        .to_channel(&http)
+        .await?
+        .guild()
+        .unwrap()
+        .guild_id
+        .channels(&http)
+        .await?;
 
     while let Some(orig_message) = stream.next().await.transpose()? {
         print!("{}", orig_message);
@@ -539,6 +549,14 @@ async fn irc_loop(
                                 computed = PING_NICK_1
                                     .replace(&computed, format!("<@{}>", id))
                                     .to_string();
+                            }
+
+                            for mat in CHANNEL_RE.find_iter(message) {
+                                let slice = &message[mat.start()+1..mat.end()];
+
+                                if let Some((id, _)) = channels.iter().find(|(_, c)| c.name == slice) {
+                                    computed = CHANNEL_RE.replace(&computed, format!("<#{}>", id.0)).to_string();
+                                }
                             }
 
                             let mut has_opened_bold = false;
