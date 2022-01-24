@@ -436,11 +436,7 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Invalid webhook URL");
 
-    tokio::spawn(async move {
-        irc_loop(irc_client, http, channel_id, webhook, members)
-            .await
-            .unwrap();
-    });
+    irc_loop(irc_client, http, channel_id, webhook, members).await?;
     discord_client.start().await?;
 
     Ok(())
