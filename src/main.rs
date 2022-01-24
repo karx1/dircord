@@ -666,6 +666,16 @@ async fn irc_loop(
                         .to_string();
                 }
 
+                for mat in CHANNEL_RE.find_iter(message) {
+                    let slice = &message[mat.start() + 1..mat.end()];
+
+                    if let Some((id, _)) = channels.iter().find(|(_, c)| c.name == slice) {
+                        computed = CHANNEL_RE
+                            .replace(&computed, format!("<#{}>", id.0))
+                            .to_string();
+                    }
+                }
+
                 let mut has_opened_bold = false;
                 let mut has_opened_italic = false;
 
