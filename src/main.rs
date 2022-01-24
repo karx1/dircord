@@ -15,7 +15,7 @@ use serenity::{
     Client as DiscordClient,
 };
 
-use tokio::sync::Mutex;
+use tokio::{select, sync::Mutex};
 
 use irc::{
     client::{data::Config, Client as IrcClient, Sender},
@@ -385,6 +385,25 @@ impl TypeMapKey for StringKey {
     type Value = String;
 }
 
+#[cfg(unix)]
+async fn terminate_signal() {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+
+    select! {
+        _ = sigterm.recv() => return,
+        _ = sigint.recv() => return,
+    }
+}
+
+#[cfg(windows)]
+async fn terminate_signal() {
+    use tokio::signal::windows::ctrl_c;
+    let mut ctrlc = ctrl_c().unwrap();
+    let _ = ctrlc.recv().await;
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let filename = env::args().nth(1).unwrap_or(String::from("config.toml"));
@@ -436,8 +455,11 @@ async fn main() -> anyhow::Result<()> {
         .await
         .expect("Invalid webhook URL");
 
-    irc_loop(irc_client, http, channel_id, webhook, members).await?;
-    discord_client.start().await?;
+    select! {
+        r = irc_loop(irc_client, http.clone(), channel_id, webhook, members) => r?,
+        r = discord_client.start() => r?,
+        _ = terminate_signal() => {channel_id.say(&http, "dircord shutting down!").await?;},
+    }
 
     Ok(())
 }
