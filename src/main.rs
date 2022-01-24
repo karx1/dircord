@@ -195,7 +195,7 @@ impl EventHandler for Handler {
 
         for mat in CHANNEL_RE.find_iter(&msg.content) {
             use serenity::model::channel::Channel::*;
-            
+
             let slice = &msg.content[mat.start() + 2..mat.end() - 1];
             let parsed: u64 = slice.parse().unwrap();
 
@@ -203,13 +203,31 @@ impl EventHandler for Handler {
 
             if let Ok(chan) = mentioned_channel_id.to_channel(&ctx).await {
                 match chan {
-                    Private(_) => replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string(),
-                    Guild(gc) => replaced = CHANNEL_RE.replace(&replaced, format!("#{}", gc.name)).to_string(),
-                    Category(cat) => replaced = CHANNEL_RE.replace(&replaced, format!("#{}", cat.name)).to_string(),
-                    _ => replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string(),
+                    Private(_) => {
+                        replaced = CHANNEL_RE
+                            .replace(&replaced, "#invalid-channel")
+                            .to_string()
+                    }
+                    Guild(gc) => {
+                        replaced = CHANNEL_RE
+                            .replace(&replaced, format!("#{}", gc.name))
+                            .to_string()
+                    }
+                    Category(cat) => {
+                        replaced = CHANNEL_RE
+                            .replace(&replaced, format!("#{}", cat.name))
+                            .to_string()
+                    }
+                    _ => {
+                        replaced = CHANNEL_RE
+                            .replace(&replaced, "#invalid-channel")
+                            .to_string()
+                    }
                 };
             } else {
-                replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string();
+                replaced = CHANNEL_RE
+                    .replace(&replaced, "#invalid-channel")
+                    .to_string();
             }
         }
 
@@ -552,10 +570,14 @@ async fn irc_loop(
                             }
 
                             for mat in CHANNEL_RE.find_iter(message) {
-                                let slice = &message[mat.start()+1..mat.end()];
+                                let slice = &message[mat.start() + 1..mat.end()];
 
-                                if let Some((id, _)) = channels.iter().find(|(_, c)| c.name == slice) {
-                                    computed = CHANNEL_RE.replace(&computed, format!("<#{}>", id.0)).to_string();
+                                if let Some((id, _)) =
+                                    channels.iter().find(|(_, c)| c.name == slice)
+                                {
+                                    computed = CHANNEL_RE
+                                        .replace(&computed, format!("<#{}>", id.0))
+                                        .to_string();
                                 }
                             }
 
