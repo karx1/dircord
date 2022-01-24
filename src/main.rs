@@ -7,7 +7,7 @@ use serenity::{
     model::{
         channel::Message,
         guild::Member,
-        id::{ChannelId, GuildId, UserId},
+        id::{ChannelId, GuildId, RoleId, UserId},
         prelude::Ready,
         webhook::Webhook,
     },
@@ -120,7 +120,19 @@ impl EventHandler for Handler {
             static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
             static ref EMOJI_RE: Regex = Regex::new(r"<:\w+:[0-9]+>").unwrap();
             static ref CHANNEL_RE: Regex = Regex::new(r"<#[0-9]+>").unwrap();
+            static ref ROLE_RE: Regex = Regex::new(r"<@&[0-9]+>").unwrap();
         }
+
+        let roles = channel_id
+            .to_channel(&ctx)
+            .await
+            .unwrap()
+            .guild()
+            .unwrap()
+            .guild_id
+            .roles(&ctx)
+            .await
+            .unwrap();
 
         let mut id_cache: HashMap<u64, String> = HashMap::new();
 
@@ -227,6 +239,19 @@ impl EventHandler for Handler {
             } else {
                 replaced = CHANNEL_RE
                     .replace(&replaced, "#invalid-channel")
+                    .to_string();
+            }
+        }
+
+        for mat in ROLE_RE.find_iter(&msg.content) {
+            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
+            let parsed: u64 = slice.parse().unwrap();
+
+            let pinged_id = RoleId(parsed);
+
+            if let Some(role) = roles.get(&pinged_id) {
+                replaced = ROLE_RE
+                    .replace(&replaced, format!("@{}", role.name))
                     .to_string();
             }
         }
