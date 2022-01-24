@@ -458,7 +458,7 @@ async fn main() -> anyhow::Result<()> {
     select! {
         r = irc_loop(irc_client, http.clone(), channel_id, webhook, members) => r?,
         r = discord_client.start() => r?,
-        _ = terminate_signal() => {channel_id.say(&http, "dircord shutting down!").await?;},
+        _ = terminate_signal() => {channel_id.say(&http, format!("dircord shutting down! (dircord {}-{})", env!("VERGEN_GIT_BRANCH"), &env!("VERGEN_GIT_SHA")[..7])).await?;},
     }
 
     Ok(())
