@@ -119,6 +119,7 @@ impl EventHandler for Handler {
             static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
             static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
             static ref EMOJI_RE: Regex = Regex::new(r"<:\w+:[0-9]+>").unwrap();
+            static ref CHANNEL_RE: Regex = Regex::new(r"<#[0-9]+>").unwrap();
         }
 
         let mut id_cache: HashMap<u64, String> = HashMap::new();
@@ -190,6 +191,26 @@ impl EventHandler for Handler {
             let formatted = format!(":{}:", parts[1]); // ignore the opening bracket in [0]
 
             replaced = EMOJI_RE.replace(&replaced, formatted).to_string();
+        }
+
+        for mat in CHANNEL_RE.find_iter(&msg.content) {
+            use serenity::model::channel::Channel::*;
+            
+            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
+            let parsed: u64 = slice.parse().unwrap();
+
+            let mentioned_channel_id = ChannelId(parsed);
+
+            if let Ok(chan) = mentioned_channel_id.to_channel(&ctx).await {
+                match chan {
+                    Private(_) => replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string(),
+                    Guild(gc) => replaced = CHANNEL_RE.replace(&replaced, format!("#{}", gc.name)).to_string(),
+                    Category(cat) => replaced = CHANNEL_RE.replace(&replaced, format!("#{}", cat.name)).to_string(),
+                    _ => replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string(),
+                };
+            } else {
+                replaced = CHANNEL_RE.replace(&replaced, "#invalid-channel").to_string();
+            }
         }
 
         {
@@ -519,6 +540,7 @@ async fn irc_loop(
                                     .replace(&computed, format!("<@{}>", id))
                                     .to_string();
                             }
+
                             let mut has_opened_bold = false;
                             let mut has_opened_italic = false;
 
