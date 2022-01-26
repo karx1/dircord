@@ -319,7 +319,7 @@ impl EventHandler for Handler {
                         .join(" ")
                 );
                 let reply_nick_bytes = reply_nick.len() + 3;
-                let reply_content_limit = 510 - reply_nick_bytes - 11;
+                let reply_content_limit = 510 - reply_nick_bytes - 14;
                 let to_send = if content.len() > reply_content_limit {
                     format!("{}...", &content[..reply_content_limit])
                 } else {
@@ -328,7 +328,7 @@ impl EventHandler for Handler {
                 send_irc_message(
                     &sender,
                     &channel,
-                    &format!("(reply) <{}> {}", reply_nick, to_send),
+                    &format!("(reply to) <{}> {}", reply_nick, to_send),
                 )
                 .await
                 .unwrap();
