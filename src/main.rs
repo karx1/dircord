@@ -318,16 +318,19 @@ impl EventHandler for Handler {
                         .join(' ')
                 );
                 let reply_nick_bytes = reply_nick.len() + 3;
-                let reply_content_limit = 510 - reply_nick_bytes - 5;
+                let reply_content_limit = 510 - reply_nick_bytes - 11;
                 let to_send = if content.len() > reply_content_limit {
-                    content.truncate(reply_content_limit);
-                    format!("> {}...", content)
+                    format!("{}...", &content[..reply_content_limit])
                 } else {
-                    format!("> {}", content)
+                    content
                 };
-                send_irc_message(&sender, &channel, &format!("<{}> {}", reply_nick, to_send))
-                    .await
-                    .unwrap();
+                send_irc_message(
+                    &sender,
+                    &channel,
+                    &format!("(reply) <{}> {}", reply_nick, to_send),
+                )
+                .await
+                .unwrap();
             }
             for chunk in chunks {
                 let to_send = String::from_iter(chunk.iter());
