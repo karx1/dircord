@@ -309,6 +309,14 @@ impl EventHandler for Handler {
                 let mut content = reply.content;
                 content = content.replace('\n', " ");
                 content = content.replace("\r\n", " "); // just in case
+                content = format!(
+                    "{} ",
+                    msg.attachments
+                        .iter()
+                        .map(|a| a.url.clone())
+                        .collect::<Vec<String>>()
+                        .join(' ')
+                );
                 let reply_nick_bytes = reply_nick.len() + 3;
                 let reply_content_limit = 510 - reply_nick_bytes - 5;
                 let to_send = if content.len() > reply_content_limit {
