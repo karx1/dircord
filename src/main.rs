@@ -134,7 +134,6 @@ impl EventHandler for Handler {
             .await
             .unwrap();
 
-
         let mut computed = String::new();
         let mut replaced = msg.content.clone();
 
@@ -143,17 +142,16 @@ impl EventHandler for Handler {
             let id = slice.parse::<u64>().unwrap();
             for member in &*members.lock().await {
                 if id == member.user.id.0 {
-                        let nick = {
-                            match &member.nick {
-                                Some(n) => n.clone(),
-                                None => member.user.name.clone(),
-                            }
-                        };
+                    let nick = {
+                        match &member.nick {
+                            Some(n) => n.clone(),
+                            None => member.user.name.clone(),
+                        }
+                    };
 
-                replaced = PING_RE_1
-                    .replace(&replaced, format!("@{}", nick))
-                    .to_string();
-
+                    replaced = PING_RE_1
+                        .replace(&replaced, format!("@{}", nick))
+                        .to_string();
                 }
             }
         }
@@ -163,16 +161,16 @@ impl EventHandler for Handler {
             let id = slice.parse::<u64>().unwrap();
             for member in &*members.lock().await {
                 if id == member.user.id.0 {
-                        let nick = {
-                            match &member.nick {
-                                Some(n) => n.clone(),
-                                None => member.user.name.clone(),
-                            }
-                        };
+                    let nick = {
+                        match &member.nick {
+                            Some(n) => n.clone(),
+                            None => member.user.name.clone(),
+                        }
+                    };
 
-                replaced = PING_RE_2
-                    .replace(&replaced, format!("@{}", nick))
-                    .to_string();
+                    replaced = PING_RE_2
+                        .replace(&replaced, format!("@{}", nick))
+                        .to_string();
                 }
             }
         }
@@ -571,19 +569,17 @@ async fn irc_loop(
                             for mat in PING_RE_2.find_iter(message) {
                                 let slice = &message[mat.start() + 1..mat.end()];
                                 for member in members_temp {
-                                    
-                            let nick = match &member.nick {
-                                Some(s) => s.to_owned(),
-                                None => member.user.name.clone(),
-                            };
+                                    let nick = match &member.nick {
+                                        Some(s) => s.to_owned(),
+                                        None => member.user.name.clone(),
+                                    };
 
-                                if slice.starts_with(&nick) {
-                                    let id = member.user.id.0;
+                                    if slice.starts_with(&nick) {
+                                        let id = member.user.id.0;
                                         computed = PING_RE_2
                                             .replace(&computed, format!("<@{}>", id))
                                             .to_string();
-                                }
-
+                                    }
                                 }
                             }
 
