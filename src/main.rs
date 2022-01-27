@@ -134,43 +134,6 @@ impl EventHandler for Handler {
             .await
             .unwrap();
 
-        let mut id_cache: HashMap<u64, String> = HashMap::new();
-
-        if PING_RE_1.is_match(&msg.content) {
-            for mat in PING_RE_1.find_iter(&msg.content) {
-                let slice = &msg.content[mat.start() + 2..mat.end() - 1];
-                let id = slice.parse::<u64>().unwrap();
-                for member in &*members.lock().await {
-                    if id == member.user.id.0 {
-                        let nick = {
-                            match &member.nick {
-                                Some(n) => n.clone(),
-                                None => member.user.name.clone(),
-                            }
-                        };
-
-                        id_cache.insert(id, nick);
-                    }
-                }
-            }
-        } else if PING_RE_2.is_match(&msg.content) {
-            for mat in PING_RE_2.find_iter(&msg.content) {
-                let slice = &msg.content[mat.start() + 3..mat.end() - 1];
-                let id = slice.parse::<u64>().unwrap();
-                for member in &*members.lock().await {
-                    if id == member.user.id.0 {
-                        let nick = {
-                            match &member.nick {
-                                Some(n) => n.clone(),
-                                None => member.user.name.clone(),
-                            }
-                        };
-
-                        id_cache.insert(id, nick);
-                    }
-                }
-            }
-        }
 
         let mut computed = String::new();
         let mut replaced = msg.content.clone();
@@ -178,20 +141,39 @@ impl EventHandler for Handler {
         for mat in PING_RE_1.find_iter(&msg.content) {
             let slice = &msg.content[mat.start() + 2..mat.end() - 1];
             let id = slice.parse::<u64>().unwrap();
-            if let Some(cached) = id_cache.get(&id) {
+            for member in &*members.lock().await {
+                if id == member.user.id.0 {
+                        let nick = {
+                            match &member.nick {
+                                Some(n) => n.clone(),
+                                None => member.user.name.clone(),
+                            }
+                        };
+
                 replaced = PING_RE_1
-                    .replace(&replaced, format!("@{}", cached))
+                    .replace(&replaced, format!("@{}", nick))
                     .to_string();
+
+                }
             }
         }
 
         for mat in PING_RE_2.find_iter(&msg.content) {
             let slice = &msg.content[mat.start() + 3..mat.end() - 1];
             let id = slice.parse::<u64>().unwrap();
-            if let Some(cached) = id_cache.get(&id) {
+            for member in &*members.lock().await {
+                if id == member.user.id.0 {
+                        let nick = {
+                            match &member.nick {
+                                Some(n) => n.clone(),
+                                None => member.user.name.clone(),
+                            }
+                        };
+
                 replaced = PING_RE_2
-                    .replace(&replaced, format!("@{}", cached))
+                    .replace(&replaced, format!("@{}", nick))
                     .to_string();
+                }
             }
         }
 
@@ -311,8 +293,9 @@ impl EventHandler for Handler {
                 content = content.replace("\r\n", " "); // just in case
                 content = format!(
                     "{} {}",
-                    content, 
-                    reply.attachments
+                    content,
+                    reply
+                        .attachments
                         .iter()
                         .map(|a| a.url.clone())
                         .collect::<Vec<String>>()
