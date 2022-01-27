@@ -523,32 +523,8 @@ async fn irc_loop(
                         if !found {
                             mentioned_1 = None;
                         }
-                    }
-                }
-            }
-            if PING_RE_2.is_match(message) {
-                for mat in PING_RE_2.find_iter(message) {
-                    let slice = &message[mat.start() + 1..mat.end()];
-                    dbg!(slice);
-                    if id_cache.get(slice).is_none() {
-                        let mut found = false;
-                        for member in &*members.lock().await {
-                            let nick = match &member.nick {
-                                Some(s) => s.to_owned(),
-                                None => member.user.name.clone(),
-                            };
 
-                            if slice.starts_with(&nick) {
-                                found = true;
-                                let id = member.user.id.0;
-                                id_cache.insert(slice.to_string(), Some(id));
-                                break;
-                            }
-                        }
-
-                        if !found {
-                            id_cache.insert(slice.to_string(), None);
-                        }
+                        id_cache.insert(slice.to_string(), mentioned_1);
                     }
                 }
             }
@@ -574,6 +550,8 @@ async fn irc_loop(
                     }
                 }
 
+                let members_temp = &*members.lock().await;
+
                 webhook
                     .execute(&http, false, |w| {
                         if let Some(cached) = avatar_cache.get(nickname) {
@@ -592,12 +570,20 @@ async fn irc_loop(
                         if !is_code {
                             for mat in PING_RE_2.find_iter(message) {
                                 let slice = &message[mat.start() + 1..mat.end()];
-                                if let Some(cached) = id_cache.get(slice) {
-                                    if let &Some(id) = cached {
+                                for member in members_temp {
+                                    
+                            let nick = match &member.nick {
+                                Some(s) => s.to_owned(),
+                                None => member.user.name.clone(),
+                            };
+
+                                if slice.starts_with(&nick) {
+                                    let id = member.user.id.0;
                                         computed = PING_RE_2
                                             .replace(&computed, format!("<@{}>", id))
                                             .to_string();
-                                    }
+                                }
+
                                 }
                             }
 
