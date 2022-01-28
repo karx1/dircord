@@ -243,7 +243,8 @@ impl EventHandler for Handler {
 
             for event in parser {
                 match event {
-                    Text(t) | Html(t) | Code(t) => computed.push_str(&format!("{} ", &t)),
+                    Text(t) | Html(t) => computed.push_str(&format!("{} ", t)),
+                    Code(t) => computed.push_str(&format!("`{}`", t)),
                     End(_) => computed.push('\x0F'),
                     Start(tag) => match tag {
                         Emphasis => computed.push('\x1D'),
