@@ -236,6 +236,8 @@ impl EventHandler for Handler {
             }
         }
 
+        replaced = replaced.replace('\u{2026}', "...");
+
         {
             use pulldown_cmark::Event::*;
             use pulldown_cmark::Tag::*;
