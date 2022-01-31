@@ -348,6 +348,19 @@ impl EventHandler for Handler {
 
         members.lock().await.push(new_member);
     }
+
+    async fn guild_member_update(&self, ctx: Context, _: Option<Member>, new: Member) {
+        let members = {
+            let data = ctx.data.read().await;
+            let members = data.get::<MembersKey>().unwrap().to_owned();
+
+            members
+        };
+
+        let x = members.lock().await.iter().position(|m| m.user.id == new.user.id).unwrap();
+        members.lock().await.remove(x);
+        members.lock().await.push(new);
+    }
 }
 
 struct HttpKey;
