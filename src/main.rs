@@ -490,7 +490,7 @@ async fn irc_loop(
 
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"@[^0-9\s]+").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"^@[\w\S]+|\s@[\w\S]+").unwrap();
         static ref CONTROL_CHAR_RE: Regex =
             Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
         static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
@@ -583,7 +583,8 @@ async fn irc_loop(
 
                         if !is_code {
                             for mat in PING_RE_2.find_iter(message) {
-                                let slice = &message[mat.start() + 1..mat.end()];
+                                let mut slice = message[mat.start()..mat.end()].trim().to_string();
+                                slice = slice.replace('@', "");
                                 for member in members_temp {
                                     let nick = match &member.nick {
                                         Some(s) => s.to_owned(),
