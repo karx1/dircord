@@ -490,7 +490,8 @@ async fn irc_loop(
 
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"^@[\w\S]+|\s@[\w\S]+").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"^@[\w\S]+").unwrap();
+        static ref PING_RE_3: Regex = Regex::new(r"\s@[\w\S]+").unwrap();
         static ref CONTROL_CHAR_RE: Regex =
             Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
         static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
@@ -576,7 +577,7 @@ async fn irc_loop(
 
                         let mut computed = message.to_string();
                         let mut is_code = false;
-                        if WHITESPACE_RE.is_match(&computed) {
+                        if WHITESPACE_RE.is_match(&computed) && !PING_RE_3.is_match(&computed) {
                             computed = format!("`{}`", computed);
                             is_code = true;
                         }
@@ -595,6 +596,24 @@ async fn irc_loop(
                                         let id = member.user.id.0;
                                         computed = PING_RE_2
                                             .replace(&computed, format!("<@{}>", id))
+                                            .to_string();
+                                    }
+                                }
+                            }
+
+                            for mat in PING_RE_3.find_iter(message) {
+                                let mut slice = message[mat.start()..mat.end()].trim().to_string();
+                                slice = slice.replace('@', "");
+                                for member in members_temp {
+                                    let nick = match &member.nick {
+                                        Some(s) => s.to_owned(),
+                                        None => member.user.name.clone(),
+                                    };
+
+                                    if slice.starts_with(&nick) {
+                                        let id = member.user.id.0;
+                                        computed = PING_RE_3
+                                            .replace(&computed, format!(" <@{}>", id))
                                             .to_string();
                                     }
                                 }
