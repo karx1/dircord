@@ -642,22 +642,22 @@ async fn irc_loop(
 
                             for c in computed.clone().chars() {
                                 if c == '\x02' {
-                                    computed = computed.replace('\x02', "**");
+                                    computed = computed.replacen('\x02', "**", 1);
                                     has_opened_bold = true;
                                 }
 
                                 if c == '\x1D' {
-                                    computed = computed.replace('\x1D', "*");
+                                    computed = computed.replacen('\x1D', "*", 1);
                                     has_opened_italic = true;
                                 }
 
                                 if c == '\x0F' {
-                                    if has_opened_italic {
-                                        computed = computed.replace('\x0F', "*");
-                                        has_opened_italic = false;
-                                    } else if has_opened_bold {
-                                        computed = computed.replace('\x0F', "**");
+                                    if has_opened_bold {
+                                        computed = computed.replacen('\x0F', "**", 1);
                                         has_opened_bold = false;
+                                    } else if has_opened_italic {
+                                        computed = computed.replacen('\x0F', "*", 1);
+                                        has_opened_italic = false;
                                     }
                                 }
                             }
