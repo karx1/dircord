@@ -357,7 +357,12 @@ impl EventHandler for Handler {
             members
         };
 
-        let x = members.lock().await.iter().position(|m| m.user.id == new.user.id).unwrap();
+        let x = members
+            .lock()
+            .await
+            .iter()
+            .position(|m| m.user.id == new.user.id)
+            .unwrap();
         members.lock().await.remove(x);
         members.lock().await.push(new);
     }
