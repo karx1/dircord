@@ -134,7 +134,6 @@ impl EventHandler for Handler {
             .await
             .unwrap();
 
-        let mut computed = String::new();
         let mut replaced = msg.content.clone();
 
         for mat in PING_RE_1.find_iter(&msg.content) {
@@ -237,6 +236,10 @@ impl EventHandler for Handler {
         }
 
         replaced = replaced.replace('\u{2026}', "...");
+        // we can safely use this character as a placeholder because it was stripped out earlier
+        replaced = replaced.replace('\n', "\u{2026}");
+
+        let mut computed = String::with_capacity(replaced.len());
 
         {
             use pulldown_cmark::Event::*;
@@ -245,7 +248,7 @@ impl EventHandler for Handler {
 
             for event in parser {
                 match event {
-                    Text(t) | Html(t) => computed.push_str(&format!("{} ", t)),
+                    Text(t) | Html(t) => computed.push_str(&t),
                     Code(t) => computed.push_str(&format!("`{}`", t)),
                     End(_) => computed.push('\x0F'),
                     Start(tag) => match tag {
@@ -319,9 +322,12 @@ impl EventHandler for Handler {
             }
             for chunk in chunks {
                 let to_send = String::from_iter(chunk.iter());
-                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, to_send))
-                    .await
-                    .unwrap();
+                let parts = to_send.split('\u{2026}');
+                for part in parts {
+                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, part))
+                        .await
+                        .unwrap();
+                }
             }
             for attachment in attachments {
                 send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, attachment))
