@@ -40,7 +40,7 @@ struct DircordConfig {
     mode: Option<String>,
     tls: Option<bool>,
     channel_id: u64,
-    raw_prefix: Option<String>
+    raw_prefix: Option<String>,
 }
 
 struct Handler;
@@ -87,7 +87,11 @@ impl EventHandler for Handler {
             let members = data.get::<MembersKey>().unwrap().to_owned();
             let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
             let channel = data.get::<StringKey>().unwrap().to_owned();
-            let raw_prefix = data.get::<OptionStringKey>().unwrap().to_owned().unwrap_or(String::from("++"));
+            let raw_prefix = data
+                .get::<OptionStringKey>()
+                .unwrap()
+                .to_owned()
+                .unwrap_or(String::from("++"));
 
             (user_id, sender, members, channel_id, channel, raw_prefix)
         };
@@ -325,10 +329,17 @@ impl EventHandler for Handler {
                 .unwrap();
             }
             if should_raw {
-                let stripped = computed.strip_prefix(&raw_prefix).unwrap().trim().strip_suffix("\x0F").unwrap();
+                let stripped = computed
+                    .strip_prefix(&raw_prefix)
+                    .unwrap()
+                    .trim()
+                    .strip_suffix("\x0F")
+                    .unwrap();
                 if stripped != "" {
                     println!("{:#?}", stripped);
-                    send_irc_message(&sender, &channel, &format!("<{}>", new_nick)).await.unwrap();
+                    send_irc_message(&sender, &channel, &format!("<{}>", new_nick))
+                        .await
+                        .unwrap();
                     send_irc_message(&sender, &channel, stripped).await.unwrap();
                 }
             } else {
