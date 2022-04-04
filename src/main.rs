@@ -267,6 +267,8 @@ impl EventHandler for Handler {
         let chars = computed.chars().collect::<Vec<char>>();
         let chunks = chars.chunks(content_limit);
 
+        let should_raw = computed.starts_with(&raw_prefix);
+
         if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
             if let Some(reply) = msg.referenced_message {
                 let rnick = {
@@ -322,13 +324,22 @@ impl EventHandler for Handler {
                 .await
                 .unwrap();
             }
-            for chunk in chunks {
-                let to_send = String::from_iter(chunk.iter());
-                let parts = to_send.split('\u{2026}');
-                for part in parts {
-                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, part))
-                        .await
-                        .unwrap();
+            if should_raw {
+                let stripped = computed.strip_prefix(&raw_prefix).unwrap().trim().strip_suffix("\x0F").unwrap();
+                if stripped != "" {
+                    println!("{:#?}", stripped);
+                    send_irc_message(&sender, &channel, &format!("<{}>", new_nick)).await.unwrap();
+                    send_irc_message(&sender, &channel, stripped).await.unwrap();
+                }
+            } else {
+                for chunk in chunks {
+                    let to_send = String::from_iter(chunk.iter());
+                    let parts = to_send.split('\u{2026}');
+                    for part in parts {
+                        send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, part))
+                            .await
+                            .unwrap();
+                    }
                 }
             }
             for attachment in attachments {
