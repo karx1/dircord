@@ -40,6 +40,7 @@ struct DircordConfig {
     mode: Option<String>,
     tls: Option<bool>,
     channel_id: u64,
+    raw_prefix: Option<String>
 }
 
 struct Handler;
@@ -78,7 +79,7 @@ impl EventHandler for Handler {
         let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
         let content_limit = 510 - nick_bytes;
 
-        let (user_id, sender, members, channel_id, channel) = {
+        let (user_id, sender, members, channel_id, channel, raw_prefix) = {
             let data = ctx.data.read().await;
 
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
@@ -86,8 +87,9 @@ impl EventHandler for Handler {
             let members = data.get::<MembersKey>().unwrap().to_owned();
             let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
             let channel = data.get::<StringKey>().unwrap().to_owned();
+            let raw_prefix = data.get::<OptionStringKey>().unwrap().to_owned().unwrap_or(String::from("++"));
 
-            (user_id, sender, members, channel_id, channel)
+            (user_id, sender, members, channel_id, channel, raw_prefix)
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
@@ -380,6 +382,7 @@ struct UserIdKey;
 struct SenderKey;
 struct MembersKey;
 struct StringKey;
+struct OptionStringKey;
 
 impl TypeMapKey for HttpKey {
     type Value = Arc<Http>;
@@ -403,6 +406,10 @@ impl TypeMapKey for MembersKey {
 
 impl TypeMapKey for StringKey {
     type Value = String;
+}
+
+impl TypeMapKey for OptionStringKey {
+    type Value = Option<String>;
 }
 
 #[cfg(unix)]
@@ -469,6 +476,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<MembersKey>(members.clone());
         data.insert::<ChannelIdKey>(channel_id);
         data.insert::<StringKey>(conf.channel);
+        data.insert::<OptionStringKey>(conf.raw_prefix);
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
