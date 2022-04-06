@@ -41,6 +41,7 @@ struct DircordConfig {
     tls: Option<bool>,
     channel_id: u64,
     raw_prefix: Option<String>,
+    channels: HashMap<String, u64>
 }
 
 struct Handler;
@@ -471,7 +472,7 @@ async fn main() -> anyhow::Result<()> {
         nickname: conf.nickname,
         server: Some(conf.server),
         port: conf.port,
-        channels: vec![conf.channel.clone()],
+        channels: conf.channels.keys().map(|s| s.to_owned()).collect(),
         use_tls: conf.tls,
         umodes: conf.mode,
         ..Config::default()
