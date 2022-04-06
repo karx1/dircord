@@ -80,21 +80,25 @@ impl EventHandler for Handler {
         let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
         let content_limit = 510 - nick_bytes;
 
-        let (user_id, sender, members, channel_id, channel, raw_prefix) = {
+        let (user_id, sender, members, mapping, raw_prefix) = {
             let data = ctx.data.read().await;
 
             let user_id = data.get::<UserIdKey>().unwrap().to_owned();
             let sender = data.get::<SenderKey>().unwrap().to_owned();
             let members = data.get::<MembersKey>().unwrap().to_owned();
-            let channel_id = data.get::<ChannelIdKey>().unwrap().to_owned();
-            let channel = data.get::<StringKey>().unwrap().to_owned();
             let raw_prefix = data
                 .get::<OptionStringKey>()
                 .unwrap()
                 .to_owned()
                 .unwrap_or(String::from("++"));
+            let mapping = data.get::<ChannelMappingKey>().unwrap().to_owned();
 
-            (user_id, sender, members, channel_id, channel, raw_prefix)
+            (user_id, sender, members, mapping, raw_prefix)
+        };
+
+        let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0) {
+            Some((k, v))  => (k.to_owned(), ChannelId::from(*v)),
+            None => return
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
@@ -105,7 +109,7 @@ impl EventHandler for Handler {
             lines.remove(lines.len() - 1);
             lines.remove(0);
 
-            if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
+            if user_id != msg.author.id && !msg.author.bot {
                 for line in lines {
                     send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, line))
                         .await
@@ -274,7 +278,7 @@ impl EventHandler for Handler {
 
         let should_raw = computed.starts_with(&raw_prefix);
 
-        if user_id != msg.author.id && !msg.author.bot && msg.channel_id == channel_id {
+        if user_id != msg.author.id && !msg.author.bot {
             if let Some(reply) = msg.referenced_message {
                 let rnick = {
                     if let Some(member) = reply.member {
@@ -406,6 +410,7 @@ struct SenderKey;
 struct MembersKey;
 struct StringKey;
 struct OptionStringKey;
+struct ChannelMappingKey;
 
 impl TypeMapKey for HttpKey {
     type Value = Arc<Http>;
@@ -433,6 +438,10 @@ impl TypeMapKey for StringKey {
 
 impl TypeMapKey for OptionStringKey {
     type Value = Option<String>;
+}
+
+impl TypeMapKey for ChannelMappingKey {
+    type Value = HashMap<String, u64>;
 }
 
 #[cfg(unix)]
@@ -500,6 +509,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<ChannelIdKey>(channel_id);
         data.insert::<StringKey>(conf.channel);
         data.insert::<OptionStringKey>(conf.raw_prefix);
+        data.insert::<ChannelMappingKey>(conf.channels);
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
