@@ -10,5 +10,5 @@ TODO:
 - [x] don't ping IRC users (and color IRC usernames)
 - [x] handle discord pings
 - [x] handle multiple pings
-- [ ] multiple channels
+- [x] multiple channels
 - [x] IRC and Discord formatting

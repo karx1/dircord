@@ -32,7 +32,6 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct DircordConfig {
     token: String,
-    webhook: Option<String>,
     nickname: Option<String>,
     server: String,
     port: Option<u16>,
@@ -40,6 +39,7 @@ struct DircordConfig {
     tls: Option<bool>,
     raw_prefix: Option<String>,
     channels: HashMap<String, u64>,
+    webhooks: Option<HashMap<String, String>>,
 }
 
 struct Handler;
@@ -509,12 +509,20 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<ChannelMappingKey>((*channels).clone());
     }
 
-    let webhook = parse_webhook_url(http.clone(), conf.webhook)
-        .await
-        .expect("Invalid webhook URL");
+    let mut webhooks_transformed: HashMap<String, Webhook> = HashMap::new();
+
+    if let Some(webhooks) = conf.webhooks {
+        for (channel, wh) in webhooks.iter() {
+            let parsed = parse_webhook_url(http.clone(), wh.to_string())
+                .await
+                .expect("Invalid webhook URL");
+
+            webhooks_transformed.insert(channel.clone(), parsed);
+        }
+    }
 
     select! {
-        r = irc_loop(irc_client, http.clone(), channels.clone(), webhook, members) => r?,
+        r = irc_loop(irc_client, http.clone(), channels.clone(), webhooks_transformed, members) => r?,
         r = discord_client.start() => r?,
         _ = terminate_signal() => {
             for (_, &v) in channels.iter() {
@@ -536,7 +544,7 @@ async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
     mapping: Arc<HashMap<String, u64>>,
-    webhook: Option<Webhook>,
+    webhooks: HashMap<String, Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
 ) -> anyhow::Result<()> {
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
@@ -606,7 +614,7 @@ async fn irc_loop(
                     }
                 }
             }
-            if let Some(ref webhook) = webhook {
+            if let Some(ref webhook) = webhooks.get(channel) {
                 if avatar_cache.get(nickname).is_none() {
                     let mut found = false;
                     for member in &*members.lock().await {
@@ -900,18 +908,11 @@ async fn irc_loop(
     Ok(())
 }
 
-async fn parse_webhook_url(
-    http: Arc<Http>,
-    url: Option<String>,
-) -> anyhow::Result<Option<Webhook>> {
-    if let Some(url) = url {
-        let url = url.trim_start_matches("https://discord.com/api/webhooks/");
-        let split = url.split("/").collect::<Vec<&str>>();
-        let id = split[0].parse::<u64>()?;
-        let token = split[1].to_string();
-        let webhook = http.get_webhook_with_token(id, &token).await?;
-        Ok(Some(webhook))
-    } else {
-        Ok(None)
-    }
+async fn parse_webhook_url(http: Arc<Http>, url: String) -> anyhow::Result<Webhook> {
+    let url = url.trim_start_matches("https://discord.com/api/webhooks/");
+    let split = url.split("/").collect::<Vec<&str>>();
+    let id = split[0].parse::<u64>()?;
+    let token = split[1].to_string();
+    let webhook = http.get_webhook_with_token(id, &token).await?;
+    Ok(webhook)
 }
