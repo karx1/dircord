@@ -36,12 +36,10 @@ struct DircordConfig {
     nickname: Option<String>,
     server: String,
     port: Option<u16>,
-    channel: String,
     mode: Option<String>,
     tls: Option<bool>,
-    channel_id: u64,
     raw_prefix: Option<String>,
-    channels: HashMap<String, u64>
+    channels: HashMap<String, u64>,
 }
 
 struct Handler;
@@ -97,8 +95,8 @@ impl EventHandler for Handler {
         };
 
         let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0) {
-            Some((k, v))  => (k.to_owned(), ChannelId::from(*v)),
-            None => return
+            Some((k, v)) => (k.to_owned(), ChannelId::from(*v)),
+            None => return,
         };
 
         let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
@@ -475,8 +473,6 @@ async fn main() -> anyhow::Result<()> {
         .event_handler(Handler)
         .await?;
 
-    let channel_id = ChannelId(conf.channel_id);
-
     let config = Config {
         nickname: conf.nickname,
         server: Some(conf.server),
@@ -491,7 +487,8 @@ async fn main() -> anyhow::Result<()> {
 
     let http = discord_client.cache_and_http.http.clone();
 
-    let members = Arc::new(Mutex::new(
+    let members = Arc::new(Mutex::new({
+        let channel_id = ChannelId::from(*conf.channels.iter().nth(0).unwrap().1);
         channel_id
             .to_channel(discord_client.cache_and_http.clone())
             .await?
@@ -499,17 +496,17 @@ async fn main() -> anyhow::Result<()> {
             .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
             .guild_id
             .members(&http, None, None)
-            .await?,
-    ));
+            .await?
+    }));
+
+    let channels = Arc::new(conf.channels);
 
     {
         let mut data = discord_client.data.write().await;
         data.insert::<SenderKey>(irc_client.sender());
         data.insert::<MembersKey>(members.clone());
-        data.insert::<ChannelIdKey>(channel_id);
-        data.insert::<StringKey>(conf.channel);
         data.insert::<OptionStringKey>(conf.raw_prefix);
-        data.insert::<ChannelMappingKey>(conf.channels);
+        data.insert::<ChannelMappingKey>((*channels).clone());
     }
 
     let webhook = parse_webhook_url(http.clone(), conf.webhook)
@@ -517,9 +514,14 @@ async fn main() -> anyhow::Result<()> {
         .expect("Invalid webhook URL");
 
     select! {
-        r = irc_loop(irc_client, http.clone(), channel_id, webhook, members) => r?,
+        r = irc_loop(irc_client, http.clone(), channels.clone(), webhook, members) => r?,
         r = discord_client.start() => r?,
-        _ = terminate_signal() => {channel_id.say(&http, format!("dircord shutting down! (dircord {}-{})", env!("VERGEN_GIT_BRANCH"), &env!("VERGEN_GIT_SHA")[..7])).await?;},
+        _ = terminate_signal() => {
+            for (_, &v) in channels.iter() {
+                let channel_id = ChannelId::from(v);
+                channel_id.say(&http, format!("dircord shutting down! (dircord {}-{})", env!("VERGEN_GIT_BRANCH"), &env!("VERGEN_GIT_SHA")[..7])).await?;
+            }
+        },
     }
 
     Ok(())
@@ -533,7 +535,7 @@ async fn send_irc_message(sender: &Sender, channel: &str, content: &str) -> anyh
 async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
-    channel_id: ChannelId,
+    mapping: Arc<HashMap<String, u64>>,
     webhook: Option<Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
 ) -> anyhow::Result<()> {
@@ -553,18 +555,27 @@ async fn irc_loop(
     client.identify()?;
     let mut stream = client.stream()?;
 
-    let channels = channel_id
-        .to_channel(&http)
-        .await?
-        .guild()
-        .unwrap()
-        .guild_id
-        .channels(&http)
-        .await?;
+    let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
+
+    for k in mapping.keys() {
+        client.send(Command::NAMES(Some(k.to_owned()), None))?;
+    }
 
     while let Some(orig_message) = stream.next().await.transpose()? {
         print!("{}", orig_message);
-        if let Command::PRIVMSG(_, ref message) = orig_message.command {
+        if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
+            let channel_id = match mapping.get(channel) {
+                Some(v) => ChannelId::from(*v),
+                None => continue,
+            };
+            let channels = channel_id
+                .to_channel(&http)
+                .await?
+                .guild()
+                .unwrap()
+                .guild_id
+                .channels(&http)
+                .await?;
             let nickname = orig_message.source_nickname().unwrap();
             let mut mentioned_1: Option<u64> = None;
             if PING_NICK_1.is_match(message) {
@@ -796,15 +807,35 @@ async fn irc_loop(
                     .say(&http, format!("<{}> {}", nickname, computed))
                     .await?;
             }
-        } else if let Command::JOIN(_, _, _) = orig_message.command {
+        } else if let Command::JOIN(ref channel, _, _) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
+            let channel_id = match mapping.get(channel) {
+                Some(v) => ChannelId::from(*v),
+                None => continue,
+            };
+            let users = match channel_users.get_mut(channel) {
+                Some(u) => u,
+                None => continue,
+            };
+            users.push(nickname.to_string());
             channel_id
                 .say(&http, format!("*{}* has joined the channel", nickname))
                 .await?;
-        } else if let Command::PART(_, ref reason) | Command::QUIT(ref reason) =
-            orig_message.command
-        {
+        } else if let Command::PART(ref channel, ref reason) = orig_message.command {
             let nickname = orig_message.source_nickname().unwrap();
+            let channel_id = match mapping.get(channel) {
+                Some(v) => ChannelId::from(*v),
+                None => continue,
+            };
+            let users = match channel_users.get_mut(channel) {
+                Some(u) => u,
+                None => continue,
+            };
+            let pos = match users.iter().position(|u| u == nickname) {
+                Some(p) => p,
+                None => continue,
+            };
+            users.swap_remove(pos);
             let reason = reason
                 .as_ref()
                 .unwrap_or(&String::from("Connection closed"))
@@ -812,14 +843,58 @@ async fn irc_loop(
             channel_id
                 .say(&http, format!("*{}* has quit ({})", nickname, reason))
                 .await?;
+        } else if let Command::QUIT(ref reason) = orig_message.command {
+            let nickname = orig_message.source_nickname().unwrap();
+            for (channel, users) in channel_users.iter_mut() {
+                let pos = match users.iter().position(|u| u == nickname) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                users.swap_remove(pos);
+                // If the user is not in the channel, the loop would have `continue`d, so this is a
+                // safe assumption to make
+                let channel_id = match mapping.get(channel) {
+                    Some(v) => ChannelId::from(*v),
+                    None => continue,
+                };
+                let reason = reason
+                    .as_ref()
+                    .unwrap_or(&String::from("Connection closed"))
+                    .to_string();
+                channel_id
+                    .say(&http, format!("*{}* has quit ({})", nickname, reason))
+                    .await?;
+            }
+        } else if let Command::Response(ref response, ref args) = orig_message.command {
+            use irc::client::prelude::Response;
+            if response == &Response::RPL_NAMREPLY {
+                let channel = args[2].to_string();
+                let users = args[3]
+                    .split(" ")
+                    .map(|s| s.to_string())
+                    .collect::<Vec<String>>();
+
+                channel_users.insert(channel, users);
+            }
         } else if let Command::NICK(ref new_nick) = orig_message.command {
             let old_nick = orig_message.source_nickname().unwrap();
-            channel_id
-                .say(
-                    &http,
-                    format!("*{}* is now known as *{}*", old_nick, new_nick),
-                )
-                .await?;
+            for (channel, users) in channel_users.iter_mut() {
+                let pos = match users.iter().position(|u| u == old_nick) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                let _ = std::mem::replace(&mut users[pos], new_nick.to_string());
+                let channel_id = match mapping.get(channel) {
+                    Some(v) => ChannelId::from(*v),
+                    None => continue,
+                };
+                channel_id
+                    .say(
+                        &http,
+                        format!("*{}* is now known as *{}*", old_nick, new_nick),
+                    )
+                    .await?;
+            }
         }
     }
     Ok(())
