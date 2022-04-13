@@ -5,7 +5,7 @@ use serenity::{
     futures::StreamExt,
     http::Http,
     model::{
-        channel::Message,
+        channel::{Message, MessageType},
         guild::Member,
         id::{ChannelId, GuildId, RoleId, UserId},
         prelude::Ready,
@@ -47,6 +47,9 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
+        if msg.kind != MessageType::Regular {
+            return;
+        }
         let nick = {
             if let Some(member) = msg.member {
                 match member.nick {
