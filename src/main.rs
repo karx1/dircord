@@ -47,8 +47,10 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
-        if msg.kind != MessageType::Regular {
-            return;
+        match msg.kind {
+            MessageType::Regular => {}
+            MessageType::InlineReply => {}
+            _ => return,
         }
         let nick = {
             if let Some(member) = msg.member {
