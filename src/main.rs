@@ -268,7 +268,18 @@ impl EventHandler for Handler {
                     Start(tag) => match tag {
                         Emphasis => computed.push('\x1D'),
                         Strong => computed.push('\x02'),
-                        Link(_, dest, _) => computed.push_str(&dest),
+                        Link(_, dest, _) => {
+                            computed.push_str(&dest);
+                            continue;
+                        }
+                        List(num) => {
+                            if let Some(num) = num {
+                                computed.push_str(&format!("{}. ", num));
+                            } else {
+                                computed.push_str("- ");
+                            }
+                        }
+                        BlockQuote => computed.push_str("> "),
                         _ => {}
                     },
                     _ => {}
