@@ -92,24 +92,19 @@ async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (
         }) => Cow::Owned(nick),
         _ => Cow::Borrowed(&msg.author.name),
     };
+    
+    let mut chars = nick.char_indices();
+    let first_char = chars.next().unwrap().1;
+    let second_char_offset = chars.next().unwrap().0;
 
-    let first_char = nick.chars().next().unwrap();
     let colour_index = (first_char as usize + nick.len()) % 12;
-
-    let mut first_char = 1;
-    loop {
-        if nick.get(..first_char).is_some() {
-            break;
-        }
-        first_char += 1;
-    }
 
     let prefix = format!(
         "{}<\x03{:02}{}\u{200B}{}\x0F> ",
         if is_reply { "(reply to) " } else { "" },
         colour_index,
-        &nick[..first_char],
-        &nick[first_char..]
+        &nick[..second_char_offset],
+        &nick[second_char_offset..]
     );
     let content_limit = 510 - prefix.len();
 
