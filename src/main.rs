@@ -1,12 +1,14 @@
-use std::{collections::HashMap, env, fs::File, io::Read, sync::Arc};
+#![warn(clippy::pedantic)]
+
+use std::{borrow::Cow, collections::HashMap, env, fs::File, io::Read, sync::Arc};
 
 use serenity::{
     async_trait,
     futures::StreamExt,
-    http::Http,
+    http::{Http, CacheHttp},
     model::{
-        channel::{Message, MessageType},
-        guild::Member,
+        channel::{Channel, GuildChannel, Message, MessageType, MessageReference},
+        guild::{Member, Role},
         id::{ChannelId, GuildId, RoleId, UserId},
         prelude::Ready,
         webhook::Webhook,
@@ -23,7 +25,7 @@ use irc::{
 };
 
 use lazy_static::lazy_static;
-use regex::Regex;
+use regex::{Captures, Regex, Replacer};
 
 use pulldown_cmark::Parser;
 
@@ -42,100 +44,107 @@ struct DircordConfig {
     webhooks: Option<HashMap<String, String>>,
 }
 
+struct StrChunks<'a> {
+    v: &'a str,
+    size: usize,
+}
+
+impl<'a> Iterator for StrChunks<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.v.is_empty() {
+            return None;
+        }
+        if self.v.len() < self.size {
+            let res = self.v;
+            self.v = &self.v[self.v.len()..];
+            return Some(res);
+        }
+
+        let mut offset = self.size;
+
+        let res = loop {
+            match self.v.get(..offset) {
+                Some(v) => break v,
+                None => {
+                    offset -= 1;
+                }
+            }
+        };
+
+        self.v = &self.v[self.v.len()..];
+
+        Some(res)
+    }
+}
+
+impl<'a> StrChunks<'a> {
+    fn new(v: &'a str, size: usize) -> Self {
+        Self { v, size }
+    }
+}
+
+async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
+    let nick = match msg.member(http).await {
+        Ok(Member {
+            nick: Some(nick), ..
+        }) => Cow::Owned(nick),
+        _ => Cow::Borrowed(&msg.author.name),
+    };
+    
+    let mut chars = nick.char_indices();
+    let first_char = chars.next().unwrap().1;
+    let second_char_offset = chars.next().unwrap().0;
+
+    let colour_index = (first_char as usize + nick.len()) % 12;
+
+    let prefix = format!(
+        "{}<\x03{:02}{}\u{200B}{}\x0F> ",
+        if is_reply { "(reply to) " } else { "" },
+        colour_index,
+        &nick[..second_char_offset],
+        &nick[second_char_offset..]
+    );
+    let content_limit = 510 - prefix.len();
+
+    (prefix, content_limit)
+}
+
 struct Handler;
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         match msg.kind {
-            MessageType::Regular => {}
-            MessageType::InlineReply => {}
+            MessageType::Regular | MessageType::InlineReply => {}
             _ => return,
         }
-        let nick = {
-            if let Some(member) = msg.member {
-                match member.nick {
-                    Some(n) => n,
-                    None => msg.author.name,
-                }
-            } else {
-                msg.author.name
-            }
-        };
 
-        let byte = nick.chars().nth(0).unwrap() as u8;
+        let ctx_data = ctx.data.read().await;
 
-        let colour_index = (byte as usize + nick.len()) % 12;
-        let formatted = format!("\x03{:02}", colour_index);
+        let user_id = ctx_data.get::<UserIdKey>().copied().unwrap();
+        let sender = ctx_data.get::<SenderKey>().unwrap();
+        let members = ctx_data.get::<MembersKey>().unwrap();
+        let raw_prefix = ctx_data
+            .get::<OptionStringKey>()
+            .unwrap()
+            .as_deref()
+            .unwrap_or("++");
+        let mapping = ctx_data.get::<ChannelMappingKey>().unwrap().clone();
 
-        let mut new_nick = String::with_capacity(formatted.len() + nick.len() + 2);
-
-        new_nick.push_str(&formatted);
-        new_nick.push_str(&nick);
-        new_nick.push('\x0F');
-
-        new_nick = format!(
-            "{}\u{200B}{}",
-            &new_nick[..formatted.len() + 1],
-            &new_nick[formatted.len() + 1..]
-        );
-
-        let nick_bytes = new_nick.len() + 3; // +1 for the space and +2 for the <>
-        let content_limit = 510 - nick_bytes;
-
-        let (user_id, sender, members, mapping, raw_prefix) = {
-            let data = ctx.data.read().await;
-
-            let user_id = data.get::<UserIdKey>().unwrap().to_owned();
-            let sender = data.get::<SenderKey>().unwrap().to_owned();
-            let members = data.get::<MembersKey>().unwrap().to_owned();
-            let raw_prefix = data
-                .get::<OptionStringKey>()
-                .unwrap()
-                .to_owned()
-                .unwrap_or(String::from("++"));
-            let mapping = data.get::<ChannelMappingKey>().unwrap().to_owned();
-
-            (user_id, sender, members, mapping, raw_prefix)
-        };
-
-        let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0) {
-            Some((k, v)) => (k.to_owned(), ChannelId::from(*v)),
-            None => return,
-        };
-
-        let attachments: Vec<String> = msg.attachments.iter().map(|a| a.url.clone()).collect();
-
-        if msg.content.starts_with("```") {
-            let mut lines = msg.content.split("\n").collect::<Vec<&str>>();
-            // remove the backticks
-            lines.remove(lines.len() - 1);
-            lines.remove(0);
-
-            if user_id != msg.author.id && !msg.author.bot {
-                for line in lines {
-                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, line))
-                        .await
-                        .unwrap();
-                }
-
-                for attachment in attachments {
-                    send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, attachment))
-                        .await
-                        .unwrap();
-                }
-            }
-
+        if user_id == msg.author.id || msg.author.bot {
             return;
         }
 
-        lazy_static! {
-            static ref PING_RE_1: Regex = Regex::new(r"<@[0-9]+>").unwrap();
-            static ref PING_RE_2: Regex = Regex::new(r"<@![0-9]+>").unwrap();
-            static ref EMOJI_RE: Regex = Regex::new(r"<:\w+:[0-9]+>").unwrap();
-            static ref CHANNEL_RE: Regex = Regex::new(r"<#[0-9]+>").unwrap();
-            static ref ROLE_RE: Regex = Regex::new(r"<@&[0-9]+>").unwrap();
-        }
+        let (prefix, content_limit) = create_prefix(&msg, false, &ctx).await;
+
+        let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0) {
+            Some((k, v)) => (k.as_str(), ChannelId::from(*v)),
+            None => return,
+        };
+
+        let attachments: Vec<&str> = msg.attachments.iter().map(|a| a.url.as_str()).collect();
 
         let roles = channel_id
             .to_channel(&ctx)
@@ -148,235 +157,62 @@ impl EventHandler for Handler {
             .await
             .unwrap();
 
-        let mut replaced = msg.content.clone();
+        let members_lock = members.lock().await;
 
-        for mat in PING_RE_1.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
-            let id = slice.parse::<u64>().unwrap();
-            for member in &*members.lock().await {
-                if id == member.user.id.0 {
-                    let nick = {
-                        match &member.nick {
-                            Some(n) => n.clone(),
-                            None => member.user.name.clone(),
-                        }
-                    };
+        let computed = discord_to_irc_processing(&msg.content, &**members_lock, &ctx, &roles).await;
 
-                    replaced = PING_RE_1
-                        .replace(&replaced, format!("@{}", nick))
-                        .to_string();
-                }
-            }
-        }
+        if let Some(MessageReference { guild_id, channel_id, message_id: Some(message_id), .. }) = msg.message_reference {
+            if let Ok(mut reply) = channel_id.message(&ctx, message_id).await {
+                reply.guild_id = guild_id; // lmao
+                let (reply_prefix, reply_content_limit) = create_prefix(&reply, true, &ctx).await;
 
-        for mat in PING_RE_2.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
-            let id = slice.parse::<u64>().unwrap();
-            for member in &*members.lock().await {
-                if id == member.user.id.0 {
-                    let nick = {
-                        match &member.nick {
-                            Some(n) => n.clone(),
-                            None => member.user.name.clone(),
-                        }
-                    };
-
-                    replaced = PING_RE_2
-                        .replace(&replaced, format!("@{}", nick))
-                        .to_string();
-                }
-            }
-        }
-
-        for mat in EMOJI_RE.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start()..mat.end()];
-
-            let parts = slice.split(':').collect::<Vec<&str>>();
-
-            let formatted = format!(":{}:", parts[1]); // ignore the opening bracket in [0]
-
-            replaced = EMOJI_RE.replace(&replaced, formatted).to_string();
-        }
-
-        for mat in CHANNEL_RE.find_iter(&msg.content) {
-            use serenity::model::channel::Channel::*;
-
-            let slice = &msg.content[mat.start() + 2..mat.end() - 1];
-            let parsed: u64 = slice.parse().unwrap();
-
-            let mentioned_channel_id = ChannelId(parsed);
-
-            if let Ok(chan) = mentioned_channel_id.to_channel(&ctx).await {
-                match chan {
-                    Private(_) => {
-                        replaced = CHANNEL_RE
-                            .replace(&replaced, "#invalid-channel")
-                            .to_string()
-                    }
-                    Guild(gc) => {
-                        replaced = CHANNEL_RE
-                            .replace(&replaced, format!("#{}", gc.name))
-                            .to_string()
-                    }
-                    Category(cat) => {
-                        replaced = CHANNEL_RE
-                            .replace(&replaced, format!("#{}", cat.name))
-                            .to_string()
-                    }
-                    _ => {
-                        replaced = CHANNEL_RE
-                            .replace(&replaced, "#invalid-channel")
-                            .to_string()
-                    }
-                };
-            } else {
-                replaced = CHANNEL_RE
-                    .replace(&replaced, "#invalid-channel")
-                    .to_string();
-            }
-        }
-
-        for mat in ROLE_RE.find_iter(&msg.content) {
-            let slice = &msg.content[mat.start() + 3..mat.end() - 1];
-            let parsed: u64 = slice.parse().unwrap();
-
-            let pinged_id = RoleId(parsed);
-
-            if let Some(role) = roles.get(&pinged_id) {
-                replaced = ROLE_RE
-                    .replace(&replaced, format!("@{}", role.name))
-                    .to_string();
-            }
-        }
-
-        replaced = replaced.replace('\u{2026}', "...");
-        // we can safely use this character as a placeholder because it was stripped out earlier
-        replaced = replaced.replace('\n', "\u{2026}");
-
-        let mut computed = String::with_capacity(replaced.len());
-
-        {
-            use pulldown_cmark::Event::*;
-            use pulldown_cmark::Tag::*;
-            let parser = Parser::new(&replaced);
-
-            for event in parser {
-                match event {
-                    Text(t) | Html(t) => computed.push_str(&t),
-                    Code(t) => computed.push_str(&format!("`{}`", t)),
-                    End(_) => computed.push('\x0F'),
-                    Start(tag) => match tag {
-                        Emphasis => computed.push('\x1D'),
-                        Strong => computed.push('\x02'),
-                        Link(_, dest, _) => {
-                            computed.push_str(&dest);
-                            continue;
-                        }
-                        List(num) => {
-                            if let Some(num) = num {
-                                computed.push_str(&format!("{}. ", num));
-                            } else {
-                                computed.push_str("- ");
-                            }
-                        }
-                        BlockQuote => computed.push_str("> "),
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
-        }
-
-        let chars = computed.chars().collect::<Vec<char>>();
-        let chunks = chars.chunks(content_limit);
-
-        let should_raw = computed.starts_with(&raw_prefix);
-
-        if user_id != msg.author.id && !msg.author.bot {
-            if let Some(reply) = msg.referenced_message {
-                let rnick = {
-                    if let Some(member) = reply.member {
-                        match member.nick {
-                            Some(n) => n,
-                            None => reply.author.name,
-                        }
-                    } else {
-                        reply.author.name
-                    }
-                };
-                let byte = rnick.chars().nth(0).unwrap() as u8;
-
-                let colour_index = (byte as usize + rnick.len()) % 12;
-                let formatted = format!("\x03{:02}", colour_index);
-                let mut reply_nick = String::with_capacity(formatted.len() + rnick.len() + 2);
-
-                reply_nick.push_str(&formatted);
-                reply_nick.push_str(&rnick);
-                reply_nick.push('\x0F');
-
-                reply_nick = format!(
-                    "{}\u{200B}{}",
-                    &reply_nick[..formatted.len() + 1],
-                    &reply_nick[formatted.len() + 1..]
-                );
                 let mut content = reply.content;
-                content = content.replace('\n', " ");
                 content = content.replace("\r\n", " "); // just in case
+                content = content.replace('\n', " ");
                 content = format!(
                     "{} {}",
                     content,
                     reply
                         .attachments
                         .iter()
-                        .map(|a| a.url.clone())
-                        .collect::<Vec<String>>()
-                        .join(" ")
+                        .map(|a| &*a.url)
+                        .collect::<String>()
                 );
-                let reply_nick_bytes = reply_nick.len() + 3;
-                let reply_content_limit = 510 - reply_nick_bytes - 14;
+
                 let to_send = if content.len() > reply_content_limit {
-                    format!("{}...", &content[..reply_content_limit])
+                    format!("{}...", &content[..reply_content_limit - 3])
                 } else {
                     content
                 };
-                send_irc_message(
-                    &sender,
-                    &channel,
-                    &format!("(reply to) <{}> {}", reply_nick, to_send),
-                )
-                .await
-                .unwrap();
-            }
-            if should_raw {
-                let stripped = computed
-                    .strip_prefix(&raw_prefix)
-                    .unwrap()
-                    .trim()
-                    .strip_suffix("\x0F")
+
+                sender
+                    .send_privmsg(channel, &format!("{}{}", reply_prefix, to_send))
                     .unwrap();
-                if stripped != "" {
-                    println!("{:#?}", stripped);
-                    send_irc_message(&sender, &channel, &format!("<{}>", new_nick))
-                        .await
+            }
+        }
+
+        if let Some((stripped, false)) = computed
+            .strip_prefix(&raw_prefix)
+            .map(str::trim)
+            .and_then(|v| v.strip_suffix('\x0F'))
+            .map(|v| (v, v.is_empty()))
+        {
+            sender.send_privmsg(channel, &prefix).unwrap();
+            sender.send_privmsg(channel, stripped).unwrap();
+        } else {
+            for line in computed.lines() {
+                for chunk in StrChunks::new(line, content_limit) {
+                    sender
+                        .send_privmsg(channel, &format!("{}{}", prefix, chunk))
                         .unwrap();
-                    send_irc_message(&sender, &channel, stripped).await.unwrap();
-                }
-            } else {
-                for chunk in chunks {
-                    let to_send = String::from_iter(chunk.iter());
-                    let parts = to_send.split('\u{2026}');
-                    for part in parts {
-                        send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, part))
-                            .await
-                            .unwrap();
-                    }
                 }
             }
-            for attachment in attachments {
-                send_irc_message(&sender, &channel, &format!("<{}> {}", new_nick, attachment))
-                    .await
-                    .unwrap();
-            }
+        }
+
+        for attachment in attachments {
+            sender
+                .send_privmsg(channel, &format!("{}{}", prefix, attachment))
+                .unwrap();
         }
     }
 
@@ -388,75 +224,46 @@ impl EventHandler for Handler {
     }
 
     async fn guild_member_addition(&self, ctx: Context, _: GuildId, new_member: Member) {
-        let members = {
-            let data = ctx.data.read().await;
-            let members = data.get::<MembersKey>().unwrap().to_owned();
-
-            members
-        };
-
-        members.lock().await.push(new_member);
+        let ctx_data = ctx.data.read().await;
+        let mut members = ctx_data.get::<MembersKey>().unwrap().lock().await;
+        members.push(new_member);
     }
 
     async fn guild_member_update(&self, ctx: Context, _: Option<Member>, new: Member) {
-        let members = {
-            let data = ctx.data.read().await;
-            let members = data.get::<MembersKey>().unwrap().to_owned();
-
-            members
-        };
+        let ctx_data = ctx.data.read().await;
+        let mut members = ctx_data.get::<MembersKey>().unwrap().lock().await;
 
         let x = members
-            .lock()
-            .await
             .iter()
             .position(|m| m.user.id == new.user.id)
             .unwrap();
-        members.lock().await.remove(x);
-        members.lock().await.push(new);
+        members.remove(x);
+        members.push(new);
     }
 }
 
-struct HttpKey;
-struct ChannelIdKey;
-struct UserIdKey;
-struct SenderKey;
-struct MembersKey;
-struct StringKey;
-struct OptionStringKey;
-struct ChannelMappingKey;
+macro_rules! type_map_key {
+    ($($name:ident => $value:ty),* $(,)?) => {
+            $(
+            struct $name;
 
-impl TypeMapKey for HttpKey {
-    type Value = Arc<Http>;
+            impl ::serenity::prelude::TypeMapKey for $name {
+                type Value = $value;
+            }
+        )*
+    };
 }
 
-impl TypeMapKey for ChannelIdKey {
-    type Value = ChannelId;
-}
-
-impl TypeMapKey for UserIdKey {
-    type Value = UserId;
-}
-
-impl TypeMapKey for SenderKey {
-    type Value = Sender;
-}
-
-impl TypeMapKey for MembersKey {
-    type Value = Arc<Mutex<Vec<Member>>>;
-}
-
-impl TypeMapKey for StringKey {
-    type Value = String;
-}
-
-impl TypeMapKey for OptionStringKey {
-    type Value = Option<String>;
-}
-
-impl TypeMapKey for ChannelMappingKey {
-    type Value = HashMap<String, u64>;
-}
+type_map_key!(
+    HttpKey => Arc<Http>,
+    ChannelIdKey => ChannelId,
+    UserIdKey => UserId,
+    SenderKey => Sender,
+    MembersKey => Arc<Mutex<Vec<Member>>>,
+    StringKey => String,
+    OptionStringKey => Option<String>,
+    ChannelMappingKey => HashMap<String, u64>,
+);
 
 #[cfg(unix)]
 async fn terminate_signal() {
@@ -465,8 +272,8 @@ async fn terminate_signal() {
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
 
     select! {
-        _ = sigterm.recv() => return,
-        _ = sigint.recv() => return,
+        _ = sigterm.recv() => {},
+        _ = sigint.recv() => {},
     }
 }
 
@@ -479,9 +286,11 @@ async fn terminate_signal() {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let filename = env::args().nth(1).unwrap_or(String::from("config.toml"));
+    let filename = env::args()
+        .nth(1)
+        .map_or(Cow::Borrowed("config.toml"), Cow::Owned);
     let mut data = String::new();
-    File::open(filename)?.read_to_string(&mut data)?;
+    File::open(&*filename)?.read_to_string(&mut data)?;
 
     let conf: DircordConfig = toml::from_str(&data)?;
 
@@ -493,7 +302,7 @@ async fn main() -> anyhow::Result<()> {
         nickname: conf.nickname,
         server: Some(conf.server),
         port: conf.port,
-        channels: conf.channels.keys().map(|s| s.to_owned()).collect(),
+        channels: conf.channels.keys().map(Clone::clone).collect(),
         use_tls: conf.tls,
         umodes: conf.mode,
         ..Config::default()
@@ -504,7 +313,8 @@ async fn main() -> anyhow::Result<()> {
     let http = discord_client.cache_and_http.http.clone();
 
     let members = Arc::new(Mutex::new({
-        let channel_id = ChannelId::from(*conf.channels.iter().nth(0).unwrap().1);
+        let channel_id = ChannelId::from(*conf.channels.iter().next().unwrap().1);
+
         channel_id
             .to_channel(discord_client.cache_and_http.clone())
             .await?
@@ -528,8 +338,8 @@ async fn main() -> anyhow::Result<()> {
     let mut webhooks_transformed: HashMap<String, Webhook> = HashMap::new();
 
     if let Some(webhooks) = conf.webhooks {
-        for (channel, wh) in webhooks.iter() {
-            let parsed = parse_webhook_url(http.clone(), wh.to_string())
+        for (channel, wh) in webhooks {
+            let parsed = parse_webhook_url(http.clone(), wh)
                 .await
                 .expect("Invalid webhook URL");
 
@@ -551,9 +361,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn send_irc_message(sender: &Sender, channel: &str, content: &str) -> anyhow::Result<()> {
-    sender.send_privmsg(channel, content)?;
-    Ok(())
+macro_rules! unwrap_or_continue {
+    ($opt:expr) => {
+        match $opt {
+            ::core::option::Option::Some(v) => v,
+            ::core::option::Option::None => continue,
+        }
+    };
 }
 
 async fn irc_loop(
@@ -565,33 +379,21 @@ async fn irc_loop(
 ) -> anyhow::Result<()> {
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
-
-    lazy_static! {
-        static ref PING_NICK_1: Regex = Regex::new(r"^[\w+]+(:|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"^@[\w\S]+").unwrap();
-        static ref PING_RE_3: Regex = Regex::new(r"\s@[\w\S]+").unwrap();
-        static ref CONTROL_CHAR_RE: Regex =
-            Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
-        static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
-        static ref CHANNEL_RE: Regex = Regex::new(r"#[A-Za-z-*]+").unwrap();
-    }
+    let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
 
     client.identify()?;
     let mut stream = client.stream()?;
 
-    let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
-
     for k in mapping.keys() {
-        client.send(Command::NAMES(Some(k.to_owned()), None))?;
+        client.send(Command::NAMES(Some(k.clone()), None))?;
     }
 
     while let Some(orig_message) = stream.next().await.transpose()? {
-        print!("{}", orig_message);
+        let nickname = unwrap_or_continue!(orig_message.source_nickname());
+
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
-            let channel_id = match mapping.get(channel) {
-                Some(v) => ChannelId::from(*v),
-                None => continue,
-            };
+            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+
             let channels = channel_id
                 .to_channel(&http)
                 .await?
@@ -600,322 +402,92 @@ async fn irc_loop(
                 .guild_id
                 .channels(&http)
                 .await?;
-            let nickname = orig_message.source_nickname().unwrap();
-            let mut mentioned_1: Option<u64> = None;
-            if PING_NICK_1.is_match(message) {
-                if let Some(mat) = PING_NICK_1.find(message) {
-                    let slice = &message[mat.start()..mat.end() - 1];
-                    if let Some(id) = id_cache.get(slice) {
-                        mentioned_1 = id.to_owned();
-                    } else {
-                        let mut found = false;
-                        for member in &*members.lock().await {
-                            let nick = match &member.nick {
-                                Some(s) => s.to_owned(),
-                                None => member.user.name.clone(),
-                            };
 
-                            if slice.starts_with(&nick) {
-                                found = true;
-                                let id = member.user.id.0;
-                                mentioned_1 = Some(id);
-                            }
-                        }
+            let members_lock = members.lock().await;
 
-                        if !found {
-                            mentioned_1 = None;
-                        }
+            let computed =
+                irc_to_discord_processing(message, &*members_lock, &mut id_cache, &channels);
 
-                        id_cache.insert(slice.to_string(), mentioned_1);
-                    }
-                }
-            }
-            if let Some(ref webhook) = webhooks.get(channel) {
-                if avatar_cache.get(nickname).is_none() {
-                    let mut found = false;
-                    for member in &*members.lock().await {
-                        let nick = match &member.nick {
-                            Some(s) => s.to_owned(),
-                            None => member.user.name.clone(),
-                        };
-
-                        if nick == nickname {
-                            found = true;
-                            let avatar_url = member.user.avatar_url();
-                            avatar_cache.insert(nickname.to_string(), avatar_url);
-                            break;
-                        }
-                    }
-
-                    if !found {
-                        avatar_cache.insert(nickname.to_string(), None); // user is not in the guild
-                    }
-                }
-
-                let members_temp = &*members.lock().await;
+            if let Some(webhook) = webhooks.get(channel) {
+                let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
+                    members_lock.iter().find_map(|member| {
+                        (*member.display_name() == nickname)
+                            .then(|| member.user.avatar_url())
+                            .flatten()
+                    })
+                });
 
                 webhook
                     .execute(&http, false, |w| {
-                        if let Some(cached) = avatar_cache.get(nickname) {
-                            if let &Some(ref url) = cached {
-                                w.avatar_url(url);
-                            }
+                        if let Some(ref url) = avatar {
+                            w.avatar_url(url);
                         }
 
-                        let mut computed = message.to_string();
-                        let mut is_code = false;
-                        if WHITESPACE_RE.is_match(&computed) && !PING_RE_3.is_match(&computed) {
-                            computed = format!("`{}`", computed);
-                            is_code = true;
-                        }
-
-                        if !is_code {
-                            for mat in PING_RE_2.find_iter(message) {
-                                let mut slice = message[mat.start()..mat.end()].trim().to_string();
-                                slice = slice.replace('@', "");
-                                for member in members_temp {
-                                    let nick = match &member.nick {
-                                        Some(s) => s.to_owned(),
-                                        None => member.user.name.clone(),
-                                    };
-
-                                    if slice.starts_with(&nick) {
-                                        let id = member.user.id.0;
-                                        computed = PING_RE_2
-                                            .replace(&computed, format!("<@{}>", id))
-                                            .to_string();
-                                    }
-                                }
-                            }
-
-                            for mat in PING_RE_3.find_iter(message) {
-                                let mut slice = message[mat.start()..mat.end()].trim().to_string();
-                                slice = slice.replace('@', "");
-                                for member in members_temp {
-                                    let nick = match &member.nick {
-                                        Some(s) => s.to_owned(),
-                                        None => member.user.name.clone(),
-                                    };
-
-                                    if slice.starts_with(&nick) {
-                                        let id = member.user.id.0;
-                                        computed = PING_RE_3
-                                            .replace(&computed, format!(" <@{}>", id))
-                                            .to_string();
-                                    }
-                                }
-                            }
-
-                            if let Some(id) = mentioned_1 {
-                                computed = PING_NICK_1
-                                    .replace(&computed, format!("<@{}>", id))
-                                    .to_string();
-                            }
-
-                            for mat in CHANNEL_RE.find_iter(message) {
-                                let slice = &message[mat.start() + 1..mat.end()];
-
-                                if let Some((id, _)) =
-                                    channels.iter().find(|(_, c)| c.name == slice)
-                                {
-                                    computed = CHANNEL_RE
-                                        .replace(&computed, format!("<#{}>", id.0))
-                                        .to_string();
-                                }
-                            }
-
-                            let mut has_opened_bold = false;
-                            let mut has_opened_italic = false;
-
-                            for c in computed.clone().chars() {
-                                if c == '\x02' {
-                                    computed = computed.replacen('\x02', "**", 1);
-                                    has_opened_bold = true;
-                                }
-
-                                if c == '\x1D' {
-                                    computed = computed.replacen('\x1D', "*", 1);
-                                    has_opened_italic = true;
-                                }
-
-                                if c == '\x0F' {
-                                    if has_opened_bold {
-                                        computed = computed.replacen('\x0F', "**", 1);
-                                        has_opened_bold = false;
-                                    } else if has_opened_italic {
-                                        computed = computed.replacen('\x0F', "*", 1);
-                                        has_opened_italic = false;
-                                    }
-                                }
-                            }
-
-                            if has_opened_italic {
-                                computed.push_str("*");
-                            }
-
-                            if has_opened_bold {
-                                computed.push_str("**");
-                            }
-
-                            computed = CONTROL_CHAR_RE.replace_all(&computed, "").to_string();
-                        }
-                        w.username(nickname);
-                        w.content(computed);
-                        w
+                        w.username(nickname).content(computed)
                     })
                     .await?;
             } else {
-                let mut computed = message.to_string();
-
-                for mat in PING_RE_2.find_iter(message) {
-                    let slice = &message[mat.start() + 1..mat.end()];
-                    if let Some(cached) = id_cache.get(slice) {
-                        if let &Some(id) = cached {
-                            computed = PING_RE_2
-                                .replace(&computed, format!("<@{}>", id))
-                                .to_string();
-                        }
-                    }
-                }
-
-                if let Some(id) = mentioned_1 {
-                    computed = PING_NICK_1
-                        .replace(&computed, format!("<@{}>", id))
-                        .to_string();
-                }
-
-                for mat in CHANNEL_RE.find_iter(message) {
-                    let slice = &message[mat.start() + 1..mat.end()];
-
-                    if let Some((id, _)) = channels.iter().find(|(_, c)| c.name == slice) {
-                        computed = CHANNEL_RE
-                            .replace(&computed, format!("<#{}>", id.0))
-                            .to_string();
-                    }
-                }
-
-                let mut has_opened_bold = false;
-                let mut has_opened_italic = false;
-
-                for c in computed.clone().chars() {
-                    if c == '\x02' {
-                        computed = computed.replace('\x02', "**");
-                        has_opened_bold = true;
-                    }
-
-                    if c == '\x1D' {
-                        computed = computed.replace('\x1D', "*");
-                        has_opened_italic = true;
-                    }
-
-                    if c == '\x0F' {
-                        if has_opened_italic {
-                            computed = computed.replace('\x0F', "*");
-                            has_opened_italic = false;
-                        } else if has_opened_bold {
-                            computed = computed.replace('\x0F', "**");
-                            has_opened_bold = false;
-                        }
-                    }
-                }
-
-                if has_opened_italic {
-                    computed.push_str("*");
-                }
-
-                if has_opened_bold {
-                    computed.push_str("**");
-                }
-
                 channel_id
                     .say(&http, format!("<{}> {}", nickname, computed))
                     .await?;
             }
         } else if let Command::JOIN(ref channel, _, _) = orig_message.command {
-            let nickname = orig_message.source_nickname().unwrap();
-            let channel_id = match mapping.get(channel) {
-                Some(v) => ChannelId::from(*v),
-                None => continue,
-            };
-            let users = match channel_users.get_mut(channel) {
-                Some(u) => u,
-                None => continue,
-            };
+            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+            let users = unwrap_or_continue!(channel_users.get_mut(channel));
+
             users.push(nickname.to_string());
+
             channel_id
                 .say(&http, format!("*{}* has joined the channel", nickname))
                 .await?;
         } else if let Command::PART(ref channel, ref reason) = orig_message.command {
-            let nickname = orig_message.source_nickname().unwrap();
-            let channel_id = match mapping.get(channel) {
-                Some(v) => ChannelId::from(*v),
-                None => continue,
-            };
-            let users = match channel_users.get_mut(channel) {
-                Some(u) => u,
-                None => continue,
-            };
-            let pos = match users.iter().position(|u| u == nickname) {
-                Some(p) => p,
-                None => continue,
-            };
+            let users = unwrap_or_continue!(channel_users.get_mut(channel));
+            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+            let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
+
             users.swap_remove(pos);
-            let reason = reason
-                .as_ref()
-                .unwrap_or(&String::from("Connection closed"))
-                .to_string();
+
+            let reason = reason.as_deref().unwrap_or("Connection closed");
+
             channel_id
                 .say(&http, format!("*{}* has quit ({})", nickname, reason))
                 .await?;
         } else if let Command::QUIT(ref reason) = orig_message.command {
-            let nickname = orig_message.source_nickname().unwrap();
-            for (channel, users) in channel_users.iter_mut() {
-                let pos = match users.iter().position(|u| u == nickname) {
-                    Some(p) => p,
-                    None => continue,
-                };
+            for (channel, users) in &mut channel_users {
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
+
                 users.swap_remove(pos);
-                // If the user is not in the channel, the loop would have `continue`d, so this is a
-                // safe assumption to make
-                let channel_id = match mapping.get(channel) {
-                    Some(v) => ChannelId::from(*v),
-                    None => continue,
-                };
-                let reason = reason
-                    .as_ref()
-                    .unwrap_or(&String::from("Connection closed"))
-                    .to_string();
+
+                let reason = reason.as_deref().unwrap_or("Connection closed");
+
                 channel_id
                     .say(&http, format!("*{}* has quit ({})", nickname, reason))
                     .await?;
             }
         } else if let Command::Response(ref response, ref args) = orig_message.command {
             use irc::client::prelude::Response;
-            if response == &Response::RPL_NAMREPLY {
+
+            if let Response::RPL_NAMREPLY = response {
                 let channel = args[2].to_string();
                 let users = args[3]
-                    .split(" ")
-                    .map(|s| s.to_string())
+                    .split(' ')
+                    .map(ToOwned::to_owned)
                     .collect::<Vec<String>>();
 
                 channel_users.insert(channel, users);
             }
         } else if let Command::NICK(ref new_nick) = orig_message.command {
-            let old_nick = orig_message.source_nickname().unwrap();
-            for (channel, users) in channel_users.iter_mut() {
-                let pos = match users.iter().position(|u| u == old_nick) {
-                    Some(p) => p,
-                    None => continue,
-                };
-                let _ = std::mem::replace(&mut users[pos], new_nick.to_string());
-                let channel_id = match mapping.get(channel) {
-                    Some(v) => ChannelId::from(*v),
-                    None => continue,
-                };
+            for (channel, users) in &mut channel_users {
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
+
+                users[pos] = new_nick.to_string();
+
                 channel_id
                     .say(
                         &http,
-                        format!("*{}* is now known as *{}*", old_nick, new_nick),
+                        format!("*{}* is now known as *{}*", nickname, new_nick),
                     )
                     .await?;
             }
@@ -924,9 +496,272 @@ async fn irc_loop(
     Ok(())
 }
 
+struct OptionReplacer<F>(F);
+
+impl<T: AsRef<str>, F: for<'r, 't> FnMut(&'r Captures<'t>) -> Option<T>> Replacer
+    for OptionReplacer<F>
+{
+    fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+        match (self.0)(caps) {
+            Some(v) => dst.push_str(v.as_ref()),
+            None => dst.push_str(caps.get(0).unwrap().as_str()),
+        }
+    }
+}
+
+fn irc_to_discord_processing(
+    message: &str,
+    members: &[Member],
+    id_cache: &mut HashMap<String, Option<u64>>,
+    channels: &HashMap<ChannelId, GuildChannel>,
+) -> String {
+    struct MemberReplacer<'a> {
+        id_cache: &'a mut HashMap<String, Option<u64>>,
+        members: &'a [Member],
+        formatter: fn(u64) -> String,
+    }
+
+    impl<'a> Replacer for MemberReplacer<'a> {
+        fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+            let slice = &caps[1];
+
+            let id = *self.id_cache.entry(slice.to_owned()).or_insert_with(|| {
+                self.members.iter().find_map(|member| {
+                    (slice == member.display_name().as_str()).then(|| member.user.id.0)
+                })
+            });
+
+            if let Some(id) = id {
+                dst.push_str(&(self.formatter)(id));
+            } else {
+                dst.push_str(caps.get(0).unwrap().as_str());
+            }
+        }
+    }
+
+    lazy_static! {
+        static ref PING_NICK_1: Regex = Regex::new(r"^([\w+]+)(?::|,)").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"^@([\w\S]+)").unwrap();
+        static ref PING_RE_3: Regex = Regex::new(r"\b@([\w\S]+)").unwrap();
+        static ref CONTROL_CHAR_RE: Regex =
+            Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
+        static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
+        static ref CHANNEL_RE: Regex = Regex::new(r"#([A-Za-z-*]+)").unwrap();
+    }
+
+    let mut computed = message.to_owned();
+
+    let mut is_code = false;
+    if WHITESPACE_RE.is_match(message) && !PING_RE_3.is_match(message) {
+        computed = format!("`{}`", computed);
+        is_code = true;
+    }
+
+    if !is_code {
+        PING_RE_3.replace_all(
+            &computed,
+            MemberReplacer {
+                id_cache,
+                members,
+                formatter: |v| format!("<@{}>", v),
+            },
+        );
+
+        PING_RE_3.replace_all(
+            &computed,
+            MemberReplacer {
+                id_cache,
+                members,
+                formatter: |v| format!("<@{}>", v),
+            },
+        );
+
+        PING_NICK_1.replace_all(
+            &computed,
+            MemberReplacer {
+                id_cache,
+                members,
+                formatter: |v| format!("<@{}>", v),
+            },
+        );
+
+        CHANNEL_RE.replace_all(
+            &computed,
+            OptionReplacer(|caps: &Captures| {
+                channels
+                    .iter()
+                    .find_map(|(id, c)| (c.name == caps[1]).then(|| format!("<#{}>", id.0)))
+            }),
+        );
+
+        let mut has_opened_bold = false;
+        let mut has_opened_italic = false;
+
+        for c in computed.clone().chars() {
+            if c == '\x02' {
+                computed = computed.replacen('\x02', "**", 1);
+                has_opened_bold = true;
+            }
+
+            if c == '\x1D' {
+                computed = computed.replacen('\x1D', "*", 1);
+                has_opened_italic = true;
+            }
+
+            if c == '\x0F' {
+                if has_opened_bold {
+                    computed = computed.replacen('\x0F', "**", 1);
+                    has_opened_bold = false;
+                } else if has_opened_italic {
+                    computed = computed.replacen('\x0F', "*", 1);
+                    has_opened_italic = false;
+                }
+            }
+        }
+
+        if has_opened_italic {
+            computed.push('*');
+        }
+
+        if has_opened_bold {
+            computed.push_str("**");
+        }
+
+        computed = CONTROL_CHAR_RE.replace_all(message, "").to_string();
+    }
+
+    computed
+}
+
+async fn discord_to_irc_processing(
+    message: &str,
+    members: &[Member],
+    ctx: &Context,
+    roles: &HashMap<RoleId, Role>,
+) -> String {
+    struct MemberReplacer<'a> {
+        members: &'a [Member],
+        formatter: fn(String) -> String,
+    }
+
+    impl<'a> Replacer for MemberReplacer<'a> {
+        fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
+            let id = caps[1].parse::<u64>().unwrap();
+
+            let display_name = self.members.iter().find_map(|member| {
+                (id == member.user.id.0).then(|| member.display_name().into_owned())
+            });
+
+            if let Some(display_name) = display_name {
+                dst.push_str(&(self.formatter)(display_name));
+            } else {
+                dst.push_str(caps.get(0).unwrap().as_str());
+            }
+        }
+    }
+
+    lazy_static! {
+        static ref PING_RE_1: Regex = Regex::new(r"<@([0-9]+)>").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"<@!([0-9]+)>").unwrap();
+        static ref EMOJI_RE: Regex = Regex::new(r"<:(\w+):[0-9]+>").unwrap();
+        static ref CHANNEL_RE: Regex = Regex::new(r"<#([0-9]+)>").unwrap();
+        static ref ROLE_RE: Regex = Regex::new(r"<@&([0-9]+)>").unwrap();
+    }
+
+    let mut computed = message.to_owned();
+
+    computed = PING_RE_1
+        .replace_all(
+            &computed,
+            MemberReplacer {
+                members,
+                formatter: |v| format!("@{}", v),
+            },
+        )
+        .into_owned();
+
+    computed = PING_RE_2
+        .replace_all(
+            &computed,
+            MemberReplacer {
+                members,
+                formatter: |v| format!("@{}", v),
+            },
+        )
+        .into_owned();
+
+    computed = EMOJI_RE.replace_all(&computed, "$1").into_owned();
+
+    // FIXME: the await makes it impossible to use `replace_all`, idk how to fix this
+    for caps in CHANNEL_RE.captures_iter(&computed.clone()) {
+        let replacement = match ChannelId(caps[1].parse().unwrap()).to_channel(&ctx).await {
+            Ok(Channel::Guild(gc)) => Cow::Owned(format!("#{}", gc.name)),
+            Ok(Channel::Category(cat)) => Cow::Owned(format!("#{}", cat.name)),
+            _ => Cow::Borrowed("#deleted-channel"),
+        };
+
+        computed = CHANNEL_RE.replace(&computed, replacement).to_string();
+    }
+
+    computed = ROLE_RE
+        .replace_all(
+            &computed,
+            OptionReplacer(|caps: &Captures| {
+                roles
+                    .get(&RoleId(caps[1].parse().unwrap()))
+                    .map(|role| format!("@{}", role.name))
+            }),
+        )
+        .into_owned();
+
+    computed = {
+        #[allow(clippy::enum_glob_use)]
+        use pulldown_cmark::{Tag::*, Event::*};
+
+        let mut new = String::with_capacity(computed.len());
+
+        for line in computed.lines() {
+            let parser = Parser::new(line);
+
+            let mut computed_line = String::with_capacity(line.len());
+
+            for event in parser {
+                match event {
+                    Text(t) | Html(t) => computed_line.push_str(&t),
+                    Code(t) => computed_line.push_str(&format!("`{}`", t)),
+                    End(_) => computed_line.push('\x0F'),
+                    Start(Emphasis) => computed_line.push('\x1D'),
+                    Start(Strong) => computed_line.push('\x02'),
+                    Start(Link(_, dest, _)) => {
+                        computed_line.push_str(&dest);
+                        continue;
+                    }
+                    Start(List(num)) => {
+                        if let Some(num) = num {
+                            computed_line.push_str(&format!("{}. ", num));
+                        } else {
+                            computed_line.push_str("- ");
+                        }
+                    }
+                    Start(BlockQuote) => computed_line.push_str("> "),
+                    _ => {}
+                }
+            }
+
+            computed_line.push('\n');
+
+            new.push_str(&computed_line);
+        }
+
+        new
+    };
+
+    computed
+}
+
 async fn parse_webhook_url(http: Arc<Http>, url: String) -> anyhow::Result<Webhook> {
     let url = url.trim_start_matches("https://discord.com/api/webhooks/");
-    let split = url.split("/").collect::<Vec<&str>>();
+    let split = url.split('/').collect::<Vec<&str>>();
     let id = split[0].parse::<u64>()?;
     let token = split[1].to_string();
     let webhook = http.get_webhook_with_token(id, &token).await?;
