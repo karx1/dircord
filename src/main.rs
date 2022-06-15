@@ -93,8 +93,8 @@ async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (
         _ => Cow::Borrowed(&msg.author.name),
     };
 
-    let byte = nick.bytes().next().unwrap();
-    let colour_index = (byte as usize + nick.len()) % 12;
+    let first_char = nick.chars().next().unwrap();
+    let colour_index = (first_char as usize + nick.len()) % 12;
 
     let mut first_char = 1;
     loop {
