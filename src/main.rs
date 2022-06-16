@@ -518,21 +518,20 @@ fn irc_to_discord_processing(
     struct MemberReplacer<'a> {
         id_cache: &'a mut HashMap<String, Option<u64>>,
         members: &'a [Member],
-        formatter: fn(u64) -> String,
     }
 
     impl<'a> Replacer for MemberReplacer<'a> {
         fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
             let slice = &caps[1];
 
-            let id = *self.id_cache.entry(slice.to_owned()).or_insert_with(|| {
+            let id = self.id_cache.entry(slice.to_owned()).or_insert_with(|| {
                 self.members.iter().find_map(|member| {
                     (slice == member.display_name().as_str()).then(|| member.user.id.0)
                 })
-            });
+            }).map(UserId);
 
             if let Some(id) = id {
-                dst.push_str(&(self.formatter)(id));
+                dst.push_str(&id.mention().to_string());
             } else {
                 dst.push_str(caps.get(0).unwrap().as_str());
             }
@@ -541,94 +540,77 @@ fn irc_to_discord_processing(
 
     lazy_static! {
         static ref PING_NICK_1: Regex = Regex::new(r"^([\w+]+)(?::|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"^@([\w\S]+)").unwrap();
-        static ref PING_RE_3: Regex = Regex::new(r"\b@([\w\S]+)").unwrap();
+        static ref PING_RE_2: Regex = Regex::new(r"@([\w\S]+)").unwrap();
         static ref CONTROL_CHAR_RE: Regex =
             Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
         static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
         static ref CHANNEL_RE: Regex = Regex::new(r"#([A-Za-z-*]+)").unwrap();
     }
 
-    let mut computed = message.to_owned();
-
-    let mut is_code = false;
-    if WHITESPACE_RE.is_match(message) && !PING_RE_3.is_match(message) {
-        computed = format!("`{}`", computed);
-        is_code = true;
+    if WHITESPACE_RE.is_match(message) && !PING_RE_2.is_match(message) {
+        return format!("`{}`", message);
     }
 
-    if !is_code {
-        PING_RE_3.replace_all(
+    let mut computed = message.to_owned();
+
+    computed = PING_NICK_1
+        .replace_all(
             &computed,
             MemberReplacer {
                 id_cache,
                 members,
-                formatter: |v| format!("<@{}>", v),
             },
-        );
+        )
+        .into_owned();
 
-        PING_RE_3.replace_all(
+    computed = PING_RE_2
+        .replace_all(
             &computed,
             MemberReplacer {
                 id_cache,
                 members,
-                formatter: |v| format!("<@{}>", v),
             },
-        );
+        )
+        .into_owned();
 
-        PING_NICK_1.replace_all(
-            &computed,
-            MemberReplacer {
-                id_cache,
-                members,
-                formatter: |v| format!("<@{}>", v),
-            },
-        );
-
-        CHANNEL_RE.replace_all(
+    computed = CHANNEL_RE
+        .replace_all(
             &computed,
             OptionReplacer(|caps: &Captures| {
                 channels
                     .iter()
                     .find_map(|(id, c)| (c.name == caps[1]).then(|| format!("<#{}>", id.0)))
             }),
-        );
+        )
+        .into_owned();
 
+    computed = {
+        let mut new = String::with_capacity(computed.len());
         let mut has_opened_bold = false;
         let mut has_opened_italic = false;
 
-        for c in computed.clone().chars() {
-            if c == '\x02' {
-                computed = computed.replacen('\x02', "**", 1);
-                has_opened_bold = true;
-            }
-
-            if c == '\x1D' {
-                computed = computed.replacen('\x1D', "*", 1);
-                has_opened_italic = true;
-            }
-
-            if c == '\x0F' {
-                if has_opened_bold {
-                    computed = computed.replacen('\x0F', "**", 1);
-                    has_opened_bold = false;
-                } else if has_opened_italic {
-                    computed = computed.replacen('\x0F', "*", 1);
-                    has_opened_italic = false;
-                }
+        for c in computed.chars() {
+            if c == '\x02' || (c == '\x0F' && has_opened_bold) {
+                new.push_str("**");
+                has_opened_bold = !has_opened_bold;
+            } else if c == '\x1D' || (c == '\x0F' && has_opened_italic) {
+                new.push('*');
+                has_opened_italic = !has_opened_italic;
+            } else {
+                new.push(c);
             }
         }
 
         if has_opened_italic {
-            computed.push('*');
+            new.push('*');
         }
 
         if has_opened_bold {
-            computed.push_str("**");
+            new.push_str("**");
         }
 
-        computed = CONTROL_CHAR_RE.replace_all(message, "").to_string();
-    }
+        CONTROL_CHAR_RE.replace_all(&new, "").into_owned()
+    };
 
     computed
 }
@@ -641,7 +623,6 @@ async fn discord_to_irc_processing(
 ) -> String {
     struct MemberReplacer<'a> {
         members: &'a [Member],
-        formatter: fn(String) -> String,
     }
 
     impl<'a> Replacer for MemberReplacer<'a> {
@@ -653,7 +634,7 @@ async fn discord_to_irc_processing(
             });
 
             if let Some(display_name) = display_name {
-                dst.push_str(&(self.formatter)(display_name));
+                dst.push_str(&format!("@{}", display_name));
             } else {
                 dst.push_str(caps.get(0).unwrap().as_str());
             }
@@ -675,7 +656,6 @@ async fn discord_to_irc_processing(
             &computed,
             MemberReplacer {
                 members,
-                formatter: |v| format!("@{}", v),
             },
         )
         .into_owned();
@@ -685,7 +665,6 @@ async fn discord_to_irc_processing(
             &computed,
             MemberReplacer {
                 members,
-                formatter: |v| format!("@{}", v),
             },
         )
         .into_owned();
