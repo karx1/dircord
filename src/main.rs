@@ -24,7 +24,7 @@ use irc::{
     proto::Command,
 };
 
-use regex::{Captures, Replacer};
+use fancy_regex::{Captures, Replacer};
 
 use pulldown_cmark::Parser;
 
@@ -518,7 +518,7 @@ macro_rules! regex {
     ($(static $name:ident = $regex:literal;)*) => {
         ::lazy_static::lazy_static! {
             $(
-                static ref $name: ::regex::Regex = ::regex::Regex::new($regex).unwrap();
+                static ref $name: ::fancy_regex::Regex = ::fancy_regex::Regex::new($regex).unwrap();
             )*
         }
     };
@@ -559,13 +559,13 @@ fn irc_to_discord_processing(
 
     regex! {
         static PING_NICK_1 = r"^([\w+]+)(?::|,)";
-        static PING_RE_2 = r"@([\w\S]+)";
+        static PING_RE_2 = r"(?<=\s)@([\w\S]+)";
         static CONTROL_CHAR_RE = r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?";
         static WHITESPACE_RE = r"^\s";
         static CHANNEL_RE = r"#([A-Za-z-*]+)";
     }
 
-    if WHITESPACE_RE.is_match(message) && !PING_RE_2.is_match(message) {
+    if WHITESPACE_RE.is_match(message).unwrap() && !PING_RE_2.is_match(message).unwrap() {
         return format!("`{}`", message);
     }
 
@@ -669,7 +669,7 @@ async fn discord_to_irc_processing(
 
     // FIXME: the await makes it impossible to use `replace_all`, idk how to fix this
     for caps in CHANNEL_RE.captures_iter(&computed.clone()) {
-        let replacement = match ChannelId(caps[1].parse().unwrap()).to_channel(&ctx).await {
+        let replacement = match ChannelId(caps.unwrap()[1].parse().unwrap()).to_channel(&ctx).await {
             Ok(Channel::Guild(gc)) => Cow::Owned(format!("#{}", gc.name)),
             Ok(Channel::Category(cat)) => Cow::Owned(format!("#{}", cat.name)),
             _ => Cow::Borrowed("#deleted-channel"),
