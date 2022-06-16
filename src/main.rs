@@ -5,9 +5,9 @@ use std::{borrow::Cow, collections::HashMap, env, fs::File, io::Read, sync::Arc}
 use serenity::{
     async_trait,
     futures::StreamExt,
-    http::{Http, CacheHttp},
+    http::{CacheHttp, Http},
     model::{
-        channel::{Channel, GuildChannel, Message, MessageType, MessageReference},
+        channel::{Channel, GuildChannel, Message, MessageReference, MessageType},
         guild::{Member, Role},
         id::{ChannelId, GuildId, RoleId, UserId},
         prelude::Ready,
@@ -92,7 +92,7 @@ async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (
         }) => Cow::Owned(nick),
         _ => Cow::Borrowed(&msg.author.name),
     };
-    
+
     let mut chars = nick.char_indices();
     let first_char = chars.next().unwrap().1;
     let second_char_offset = chars.next().unwrap().0;
@@ -161,7 +161,13 @@ impl EventHandler for Handler {
 
         let computed = discord_to_irc_processing(&msg.content, &**members_lock, &ctx, &roles).await;
 
-        if let Some(MessageReference { guild_id, channel_id, message_id: Some(message_id), .. }) = msg.message_reference {
+        if let Some(MessageReference {
+            guild_id,
+            channel_id,
+            message_id: Some(message_id),
+            ..
+        }) = msg.message_reference
+        {
             if let Ok(mut reply) = channel_id.message(&ctx, message_id).await {
                 reply.guild_id = guild_id; // lmao
                 let (reply_prefix, reply_content_limit) = create_prefix(&reply, true, &ctx).await;
@@ -524,11 +530,15 @@ fn irc_to_discord_processing(
         fn replace_append(&mut self, caps: &Captures<'_>, dst: &mut String) {
             let slice = &caps[1];
 
-            let id = self.id_cache.entry(slice.to_owned()).or_insert_with(|| {
-                self.members.iter().find_map(|member| {
-                    (slice == member.display_name().as_str()).then(|| member.user.id.0)
+            let id = self
+                .id_cache
+                .entry(slice.to_owned())
+                .or_insert_with(|| {
+                    self.members.iter().find_map(|member| {
+                        (slice == member.display_name().as_str()).then(|| member.user.id.0)
+                    })
                 })
-            }).map(UserId);
+                .map(UserId);
 
             if let Some(id) = id {
                 dst.push_str(&id.mention().to_string());
@@ -554,23 +564,11 @@ fn irc_to_discord_processing(
     let mut computed = message.to_owned();
 
     computed = PING_NICK_1
-        .replace_all(
-            &computed,
-            MemberReplacer {
-                id_cache,
-                members,
-            },
-        )
+        .replace_all(&computed, MemberReplacer { id_cache, members })
         .into_owned();
 
     computed = PING_RE_2
-        .replace_all(
-            &computed,
-            MemberReplacer {
-                id_cache,
-                members,
-            },
-        )
+        .replace_all(&computed, MemberReplacer { id_cache, members })
         .into_owned();
 
     computed = CHANNEL_RE
@@ -652,21 +650,11 @@ async fn discord_to_irc_processing(
     let mut computed = message.to_owned();
 
     computed = PING_RE_1
-        .replace_all(
-            &computed,
-            MemberReplacer {
-                members,
-            },
-        )
+        .replace_all(&computed, MemberReplacer { members })
         .into_owned();
 
     computed = PING_RE_2
-        .replace_all(
-            &computed,
-            MemberReplacer {
-                members,
-            },
-        )
+        .replace_all(&computed, MemberReplacer { members })
         .into_owned();
 
     computed = EMOJI_RE.replace_all(&computed, "$1").into_owned();
@@ -695,7 +683,7 @@ async fn discord_to_irc_processing(
 
     computed = {
         #[allow(clippy::enum_glob_use)]
-        use pulldown_cmark::{Tag::*, Event::*};
+        use pulldown_cmark::{Event::*, Tag::*};
 
         let mut new = String::with_capacity(computed.len());
 
