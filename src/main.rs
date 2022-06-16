@@ -24,8 +24,7 @@ use irc::{
     proto::Command,
 };
 
-use lazy_static::lazy_static;
-use regex::{Captures, Regex, Replacer};
+use regex::{Captures, Replacer};
 
 use pulldown_cmark::Parser;
 
@@ -515,6 +514,16 @@ impl<T: AsRef<str>, F: for<'r, 't> FnMut(&'r Captures<'t>) -> Option<T>> Replace
     }
 }
 
+macro_rules! regex {
+    ($(static $name:ident = $regex:literal;)*) => {
+        ::lazy_static::lazy_static! {
+            $(
+                static ref $name: ::regex::Regex = ::regex::Regex::new($regex).unwrap();
+            )*
+        }
+    };
+}
+
 fn irc_to_discord_processing(
     message: &str,
     members: &[Member],
@@ -548,13 +557,12 @@ fn irc_to_discord_processing(
         }
     }
 
-    lazy_static! {
-        static ref PING_NICK_1: Regex = Regex::new(r"^([\w+]+)(?::|,)").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"@([\w\S]+)").unwrap();
-        static ref CONTROL_CHAR_RE: Regex =
-            Regex::new(r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?").unwrap();
-        static ref WHITESPACE_RE: Regex = Regex::new(r"^\s").unwrap();
-        static ref CHANNEL_RE: Regex = Regex::new(r"#([A-Za-z-*]+)").unwrap();
+    regex! {
+        static PING_NICK_1 = r"^([\w+]+)(?::|,)";
+        static PING_RE_2 = r"@([\w\S]+)";
+        static CONTROL_CHAR_RE = r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?";
+        static WHITESPACE_RE = r"^\s";
+        static CHANNEL_RE = r"#([A-Za-z-*]+)";
     }
 
     if WHITESPACE_RE.is_match(message) && !PING_RE_2.is_match(message) {
@@ -639,12 +647,12 @@ async fn discord_to_irc_processing(
         }
     }
 
-    lazy_static! {
-        static ref PING_RE_1: Regex = Regex::new(r"<@([0-9]+)>").unwrap();
-        static ref PING_RE_2: Regex = Regex::new(r"<@!([0-9]+)>").unwrap();
-        static ref EMOJI_RE: Regex = Regex::new(r"<:(\w+):[0-9]+>").unwrap();
-        static ref CHANNEL_RE: Regex = Regex::new(r"<#([0-9]+)>").unwrap();
-        static ref ROLE_RE: Regex = Regex::new(r"<@&([0-9]+)>").unwrap();
+    regex! {
+        static PING_RE_1 = r"<@([0-9]+)>";
+        static PING_RE_2 = r"<@!([0-9]+)>";
+        static EMOJI_RE = r"<:(\w+):[0-9]+>";
+        static CHANNEL_RE = r"<#([0-9]+)>";
+        static ROLE_RE = r"<@&([0-9]+)>";
     }
 
     let mut computed = message.to_owned();
