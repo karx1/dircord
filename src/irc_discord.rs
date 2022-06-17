@@ -227,13 +227,18 @@ fn irc_to_discord_processing(
         )
         .into_owned();
 
-    computed = {
+    #[allow(clippy::map_unwrap_or)]
+    {
         computed = computed
             .strip_prefix("\x01ACTION ")
             .and_then(|s| s.strip_suffix('\x01'))
             .map(|s| format!("*{}*", s))
             .unwrap_or_else(|| computed); // if any step in the way fails, fall back to using computed
+    }
+
+    computed = {
         let mut new = String::with_capacity(computed.len());
+
         let mut has_opened_bold = false;
         let mut has_opened_italic = false;
 
