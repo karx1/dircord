@@ -6,31 +6,23 @@ mod irc_discord;
 use std::{borrow::Cow, collections::HashMap, env, fs::File, io::Read, sync::Arc};
 
 use serenity::{
-    async_trait,
-    futures::StreamExt,
-    http::{CacheHttp, Http},
+    http::Http,
     model::{
-        channel::{Channel, GuildChannel, Message, MessageReference, MessageType},
-        guild::{Member, Role},
-        id::{ChannelId, GuildId, RoleId, UserId},
-        prelude::Ready,
+        guild::Member,
+        id::{ChannelId, UserId},
         webhook::Webhook,
     },
-    prelude::*,
     Client as DiscordClient,
 };
 
 use tokio::{select, sync::Mutex};
 
-use irc::{
-    client::{data::Config, Client as IrcClient, Sender},
-    proto::Command,
-};
+use irc::client::{data::Config, Client as IrcClient, Sender};
+
+use crate::discord_irc::Handler;
+use crate::irc_discord::irc_loop;
 
 use fancy_regex::{Captures, Replacer};
-
-use pulldown_cmark::Parser;
-
 use serde::Deserialize;
 
 #[derive(Deserialize)]
