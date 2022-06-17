@@ -46,6 +46,26 @@ pub async fn irc_loop(
     }
 
     while let Some(orig_message) = stream.next().await.transpose()? {
+        match orig_message.command {
+            Command::Response(response, args) => {
+                use irc::client::prelude::Response;
+
+                // if let Response::RPL_NAMREPLY = response {
+                if response == Response::RPL_NAMREPLY {
+                    let channel = args[2].to_string();
+                    let users = args[3]
+                        .split(' ')
+                        .map(ToOwned::to_owned)
+                        .collect::<Vec<String>>();
+
+                    channel_users.insert(channel, users);
+                }
+
+                continue;
+            }
+            _ => {}
+        };
+
         let nickname = unwrap_or_continue!(orig_message.source_nickname());
 
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
@@ -121,18 +141,6 @@ pub async fn irc_loop(
                 channel_id
                     .say(&http, format!("*{}* has quit ({})", nickname, reason))
                     .await?;
-            }
-        } else if let Command::Response(ref response, ref args) = orig_message.command {
-            use irc::client::prelude::Response;
-
-            if let Response::RPL_NAMREPLY = response {
-                let channel = args[2].to_string();
-                let users = args[3]
-                    .split(' ')
-                    .map(ToOwned::to_owned)
-                    .collect::<Vec<String>>();
-
-                channel_users.insert(channel, users);
             }
         } else if let Command::NICK(ref new_nick) = orig_message.command {
             for (channel, users) in &mut channel_users {
