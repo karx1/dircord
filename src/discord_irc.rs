@@ -1,6 +1,5 @@
 use crate::{
-    regex, ChannelMappingKey, MembersKey, OptionReplacer, OptionStringKey, SenderKey, StrChunks,
-    UserIdKey,
+    regex, ChannelMappingKey, MembersKey, OptionReplacer, OptionStringKey, SenderKey, UserIdKey,
 };
 use fancy_regex::{Captures, Replacer};
 use pulldown_cmark::Parser;
@@ -17,6 +16,47 @@ use serenity::{
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
+
+struct StrChunks<'a> {
+    v: &'a str,
+    size: usize,
+}
+
+impl<'a> Iterator for StrChunks<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.v.is_empty() {
+            return None;
+        }
+        if self.v.len() < self.size {
+            let res = self.v;
+            self.v = &self.v[self.v.len()..];
+            return Some(res);
+        }
+
+        let mut offset = self.size;
+
+        let res = loop {
+            match self.v.get(..offset) {
+                Some(v) => break v,
+                None => {
+                    offset -= 1;
+                }
+            }
+        };
+
+        self.v = &self.v[self.v.len()..];
+
+        Some(res)
+    }
+}
+
+impl<'a> StrChunks<'a> {
+    fn new(v: &'a str, size: usize) -> Self {
+        Self { v, size }
+    }
+}
 
 async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
     let nick = match msg.member(http).await {
