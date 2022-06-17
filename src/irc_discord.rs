@@ -46,24 +46,20 @@ pub async fn irc_loop(
     }
 
     while let Some(orig_message) = stream.next().await.transpose()? {
-        match orig_message.command {
-            Command::Response(response, args) => {
-                use irc::client::prelude::Response;
+        if let Command::Response(response, args) = orig_message.command {
+            use irc::client::prelude::Response;
 
-                // if let Response::RPL_NAMREPLY = response {
-                if response == Response::RPL_NAMREPLY {
-                    let channel = args[2].to_string();
-                    let users = args[3]
-                        .split(' ')
-                        .map(ToOwned::to_owned)
-                        .collect::<Vec<String>>();
+            if response == Response::RPL_NAMREPLY {
+                let channel = args[2].to_string();
+                let users = args[3]
+                    .split(' ')
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<String>>();
 
-                    channel_users.insert(channel, users);
-                }
-
-                continue;
+                channel_users.insert(channel, users);
             }
-            _ => {}
+
+            continue;
         };
 
         let nickname = unwrap_or_continue!(orig_message.source_nickname());
