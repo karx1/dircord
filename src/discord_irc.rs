@@ -46,7 +46,7 @@ impl<'a> Iterator for StrChunks<'a> {
             }
         };
 
-        self.v = &self.v[self.v.len()..];
+        self.v = &self.v[offset..];
 
         Some(res)
     }
@@ -79,7 +79,9 @@ async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (
         &nick[..second_char_offset],
         &nick[second_char_offset..]
     );
-    let content_limit = 510 - prefix.len();
+    // this 400 is basically just a guess. we cant send exactly 512 byte messages, because
+    // if we do then the server cant send them back without going over the 512 limit itself.
+    let content_limit = 400 - prefix.len();
 
     (prefix, content_limit)
 }
