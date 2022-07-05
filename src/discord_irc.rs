@@ -16,6 +16,7 @@ use serenity::{
 };
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 struct StrChunks<'a> {
     v: &'a str,
@@ -244,7 +245,7 @@ async fn discord_to_irc_processing(
             });
 
             if let Some(display_name) = display_name {
-                dst.push_str(&format!("@{}", display_name));
+                write!(dst, "@{}", display_name).unwrap();
             } else {
                 dst.push_str(caps.get(0).unwrap().as_str());
             }
@@ -310,7 +311,7 @@ async fn discord_to_irc_processing(
             for event in parser {
                 match event {
                     Text(t) | Html(t) => computed_line.push_str(&t),
-                    Code(t) => computed_line.push_str(&format!("`{}`", t)),
+                    Code(t) => write!(computed_line, "`{}`", t).unwrap(),
                     End(_) => computed_line.push('\x0F'),
                     Start(Emphasis) => computed_line.push('\x1D'),
                     Start(Strong) => computed_line.push('\x02'),
@@ -320,7 +321,7 @@ async fn discord_to_irc_processing(
                     }
                     Start(List(num)) => {
                         if let Some(num) = num {
-                            computed_line.push_str(&format!("{}. ", num));
+                            write!(computed_line, "{}. ", num).unwrap();
                         } else {
                             computed_line.push_str("- ");
                         }
