@@ -160,6 +160,8 @@ impl EventHandler for Handler {
                         .collect::<String>()
                 );
 
+                content = discord_to_irc_processing(&content, &**members_lock, &ctx, &roles).await;
+
                 let to_send = if content.len() > reply_content_limit {
                     format!("{}...", &content[..reply_content_limit - 3])
                 } else {
