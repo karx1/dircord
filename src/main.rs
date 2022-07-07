@@ -144,12 +144,12 @@ async fn main() -> anyhow::Result<()> {
     }
 
     select! {
-        r = irc_loop(irc_client, http.clone(), channels.clone(), webhooks_transformed, members) => r?,
-        r = discord_client.start() => r?,
+        r = irc_loop(irc_client, http.clone(), channels.clone(), webhooks_transformed, members) => r.unwrap(),
+        r = discord_client.start() => r.unwrap(),
         _ = terminate_signal() => {
             for (_, &v) in channels.iter() {
                 let channel_id = ChannelId::from(v);
-                channel_id.say(&http, format!("dircord shutting down! (dircord {}-{})", env!("VERGEN_GIT_BRANCH"), &env!("VERGEN_GIT_SHA")[..7])).await?;
+                channel_id.say(&http, format!("dircord shutting down! (dircord {}-{})", env!("VERGEN_GIT_BRANCH"), &env!("VERGEN_GIT_SHA")[..7])).await.unwrap();
             }
         },
     }

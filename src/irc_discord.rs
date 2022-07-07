@@ -2,7 +2,9 @@ use irc::{client::Client as IrcClient, proto::Command};
 
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc::unbounded_channel, Mutex};
+
+use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use serenity::{
     futures::StreamExt,
@@ -27,6 +29,7 @@ macro_rules! unwrap_or_continue {
     };
 }
 
+#[allow(clippy::too_many_lines)] // missing, fight me
 pub async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
@@ -34,6 +37,9 @@ pub async fn irc_loop(
     webhooks: HashMap<String, Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
 ) -> anyhow::Result<()> {
+    let (send, recv) = unbounded_channel();
+    tokio::spawn(msg_task(UnboundedReceiverStream::new(recv)));
+
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
     let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
@@ -63,7 +69,6 @@ pub async fn irc_loop(
         };
 
         let nickname = unwrap_or_continue!(orig_message.source_nickname());
-
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 
@@ -90,19 +95,20 @@ pub async fn irc_loop(
                     })
                 });
 
-                webhook
-                    .execute(&http, false, |w| {
-                        if let Some(ref url) = avatar {
-                            w.avatar_url(url);
-                        }
-
-                        w.username(nickname).content(computed)
-                    })
-                    .await?;
+                let m = QueuedMessage::Webhook {
+                    webhook: webhook.clone(),
+                    http: http.clone(),
+                    avatar_url: avatar.clone(),
+                    content: computed,
+                    nickname: nickname.to_string(),
+                };
+                send.send(m)?;
             } else {
-                channel_id
-                    .say(&http, format!("<{}> {}", nickname, computed))
-                    .await?;
+                send.send(QueuedMessage::Raw {
+                    channel_id,
+                    http: http.clone(),
+                    message: format!("<{}>, {}", nickname, computed),
+                })?;
             }
         } else if let Command::JOIN(ref channel, _, _) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
@@ -110,9 +116,11 @@ pub async fn irc_loop(
 
             users.push(nickname.to_string());
 
-            channel_id
-                .say(&http, format!("*{}* has joined the channel", nickname))
-                .await?;
+            send.send(QueuedMessage::Raw {
+                channel_id,
+                http: http.clone(),
+                message: format!("*{}* has joined the channel", nickname),
+            })?;
         } else if let Command::PART(ref channel, ref reason) = orig_message.command {
             let users = unwrap_or_continue!(channel_users.get_mut(channel));
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
@@ -122,9 +130,11 @@ pub async fn irc_loop(
 
             let reason = reason.as_deref().unwrap_or("Connection closed");
 
-            channel_id
-                .say(&http, format!("*{}* has quit ({})", nickname, reason))
-                .await?;
+            send.send(QueuedMessage::Raw {
+                channel_id,
+                http: http.clone(),
+                message: format!("*{}* has quit ({})", nickname, reason),
+            })?;
         } else if let Command::QUIT(ref reason) = orig_message.command {
             for (channel, users) in &mut channel_users {
                 let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
@@ -134,9 +144,11 @@ pub async fn irc_loop(
 
                 let reason = reason.as_deref().unwrap_or("Connection closed");
 
-                channel_id
-                    .say(&http, format!("*{}* has quit ({})", nickname, reason))
-                    .await?;
+                send.send(QueuedMessage::Raw {
+                    channel_id,
+                    http: http.clone(),
+                    message: format!("*{}* has quit ({})", nickname, reason),
+                })?;
             }
         } else if let Command::NICK(ref new_nick) = orig_message.command {
             for (channel, users) in &mut channel_users {
@@ -145,12 +157,11 @@ pub async fn irc_loop(
 
                 users[pos] = new_nick.to_string();
 
-                channel_id
-                    .say(
-                        &http,
-                        format!("*{}* is now known as *{}*", nickname, new_nick),
-                    )
-                    .await?;
+                send.send(QueuedMessage::Raw {
+                    channel_id,
+                    http: http.clone(),
+                    message: format!("*{}* is now known as *{}*", nickname, new_nick),
+                })?;
             }
         }
     }
@@ -262,4 +273,53 @@ fn irc_to_discord_processing(
     };
 
     computed
+}
+
+#[allow(clippy::large_enum_variant)] // lmao
+#[derive(Debug)]
+enum QueuedMessage {
+    Webhook {
+        webhook: Webhook,
+        http: Arc<Http>,
+        avatar_url: Option<String>,
+        content: String,
+        nickname: String,
+    },
+    Raw {
+        channel_id: ChannelId,
+        http: Arc<Http>,
+        message: String,
+    },
+}
+
+async fn msg_task(mut recv: UnboundedReceiverStream<QueuedMessage>) -> anyhow::Result<()> {
+    while let Some(msg) = recv.next().await {
+        match msg {
+            QueuedMessage::Webhook {
+                webhook,
+                http,
+                avatar_url,
+                content,
+                nickname,
+            } => {
+                webhook
+                    .execute(&http, true, |w| {
+                        if let Some(ref url) = avatar_url {
+                            w.avatar_url(url);
+                        }
+
+                        w.username(nickname).content(content)
+                    })
+                    .await?;
+            }
+            QueuedMessage::Raw {
+                channel_id,
+                http,
+                message,
+            } => {
+                channel_id.say(&http, message).await?;
+            }
+        }
+    }
+    Ok(())
 }
