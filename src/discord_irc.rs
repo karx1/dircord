@@ -60,19 +60,17 @@ impl<'a> StrChunks<'a> {
 }
 
 async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
-    
     let mut nick = match msg.member(http).await {
         Ok(Member {
             nick: Some(nick), ..
         }) => Cow::Owned(nick),
         _ => Cow::Borrowed(&msg.author.name),
     };
-    
+
     if option_env!("DIRCORD_POLARIAN_MODE").is_some() {
         nick = Cow::Owned("polarbear".to_string());
     }
-    
-    
+
     let mut chars = nick.char_indices();
     let first_char = chars.next().unwrap().1;
     let second_char_offset = chars.next().unwrap().0;
