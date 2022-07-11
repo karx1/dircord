@@ -68,7 +68,7 @@ pub async fn irc_loop(
             continue;
         };
 
-        let nickname = unwrap_or_continue!(orig_message.source_nickname());
+        let nickname = "polarbear";
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 

@@ -60,12 +60,13 @@ impl<'a> StrChunks<'a> {
 }
 
 async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
-    let nick = match msg.member(http).await {
-        Ok(Member {
-            nick: Some(nick), ..
-        }) => Cow::Owned(nick),
-        _ => Cow::Borrowed(&msg.author.name),
-    };
+    // let nick = match msg.member(http).await {
+    //     Ok(Member {
+    //         nick: Some(nick), ..
+    //     }) => Cow::Owned(nick),
+    //     _ => Cow::Borrowed(&msg.author.name),
+    // };
+    let nick = "polarbear";
 
     let mut chars = nick.char_indices();
     let first_char = chars.next().unwrap().1;
