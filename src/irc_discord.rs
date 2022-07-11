@@ -68,7 +68,11 @@ pub async fn irc_loop(
             continue;
         };
 
-        let nickname = "polarbear";
+        let mut nickname = unwrap_or_continue!(orig_message.source_nickname());
+        
+        if option_env!("DIRCORD_POLARIAN_MODE").is_some() {
+            nickname = "polarbear";
+        }
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 
