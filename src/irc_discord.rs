@@ -106,14 +106,13 @@ pub async fn irc_loop(
                     })
                 });
 
-                let m = QueuedMessage::Webhook {
+                send.send(QueuedMessage::Webhook {
                     webhook: webhook.clone(),
                     http: http.clone(),
                     avatar_url: avatar.clone(),
                     content: computed,
                     nickname: nickname.to_string(),
-                };
-                send.send(m)?;
+                })?;
             } else {
                 send.send(QueuedMessage::Raw {
                     channel_id,
