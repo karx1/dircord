@@ -51,6 +51,8 @@ pub async fn irc_loop(
         client.send(Command::NAMES(Some(k.clone()), None))?;
     }
 
+    let mut channels_cache = None;
+
     while let Some(orig_message) = stream.next().await.transpose()? {
         if let Command::Response(response, args) = orig_message.command {
             use irc::client::prelude::Response;
@@ -76,19 +78,24 @@ pub async fn irc_loop(
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 
-            let channels = channel_id
-                .to_channel(&http)
-                .await?
-                .guild()
-                .unwrap()
-                .guild_id
-                .channels(&http)
-                .await?;
+            if channels_cache.is_none() {
+                channels_cache = Some(
+                    channel_id
+                        .to_channel(&http)
+                        .await?
+                        .guild()
+                        .unwrap()
+                        .guild_id
+                        .channels(&http)
+                        .await?,
+                );
+            }
+            let channels = channels_cache.as_ref().unwrap();
 
             let members_lock = members.lock().await;
 
             let computed =
-                irc_to_discord_processing(message, &*members_lock, &mut id_cache, &channels);
+                irc_to_discord_processing(message, &*members_lock, &mut id_cache, channels);
 
             if let Some(webhook) = webhooks.get(channel) {
                 let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
