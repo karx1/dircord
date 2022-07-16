@@ -49,6 +49,7 @@ pub async fn irc_loop(
 
     for k in mapping.keys() {
         client.send(Command::NAMES(Some(k.clone()), None))?;
+        client.send_topic(k, "")?;
     }
 
     let mut channels_cache = None;
@@ -65,6 +66,12 @@ pub async fn irc_loop(
                     .collect::<Vec<String>>();
 
                 channel_users.insert(channel, users);
+            } else if response == Response::RPL_TOPIC {
+                let channel = &args[1];
+                let topic = &args[2];
+
+                let channel = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                channel.edit(&http, |c| c.topic(topic)).await?;
             }
 
             continue;
@@ -173,6 +180,10 @@ pub async fn irc_loop(
                     message: format!("*{}* is now known as *{}*", nickname, new_nick),
                 })?;
             }
+        } else if let Command::TOPIC(ref channel, ref topic) = orig_message.command {
+            let topic = unwrap_or_continue!(topic.as_ref());
+            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+            channel_id.edit(&http, |c| c.topic(topic)).await?;
         }
     }
     Ok(())
