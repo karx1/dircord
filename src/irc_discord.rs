@@ -7,6 +7,7 @@ use tokio::sync::{mpsc::unbounded_channel, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use serenity::{
+    cache::Cache,
     futures::StreamExt,
     http::Http,
     model::{
@@ -14,6 +15,7 @@ use serenity::{
         webhook::Webhook,
     },
     prelude::*,
+    utils::{content_safe, ContentSafeOptions},
 };
 
 use crate::{regex, OptionReplacer};
@@ -33,6 +35,7 @@ macro_rules! unwrap_or_continue {
 pub async fn irc_loop(
     mut client: IrcClient,
     http: Arc<Http>,
+    cache: Arc<Cache>,
     mapping: Arc<HashMap<String, u64>>,
     webhooks: HashMap<String, Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
@@ -101,8 +104,20 @@ pub async fn irc_loop(
 
             let members_lock = members.lock().await;
 
-            let computed =
+            let mut computed =
                 irc_to_discord_processing(message, &*members_lock, &mut id_cache, channels);
+
+            computed = {
+                let opts = ContentSafeOptions::new()
+                    .clean_role(false)
+                    .clean_user(false)
+                    .clean_channel(false)
+                    .show_discriminator(false)
+                    .clean_here(true) // setting these to true explicitly isn't needed,
+                    .clean_everyone(true); // but i did it anyway for readability
+
+                content_safe(&cache, computed, &opts).await
+            };
 
             if let Some(webhook) = webhooks.get(channel) {
                 let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {

@@ -107,6 +107,7 @@ async fn main() -> anyhow::Result<()> {
     let irc_client = IrcClient::from_config(config).await?;
 
     let http = discord_client.cache_and_http.http.clone();
+    let cache = discord_client.cache_and_http.cache.clone();
 
     let members = Arc::new(Mutex::new({
         let channel_id = ChannelId::from(*conf.channels.iter().next().unwrap().1);
@@ -144,7 +145,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     select! {
-        r = irc_loop(irc_client, http.clone(), channels.clone(), webhooks_transformed, members) => r.unwrap(),
+        r = irc_loop(irc_client, http.clone(), cache.clone(), channels.clone(), webhooks_transformed, members) => r.unwrap(),
         r = discord_client.start() => r.unwrap(),
         _ = terminate_signal() => {
             for (_, &v) in channels.iter() {
