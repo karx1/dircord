@@ -155,15 +155,8 @@ impl EventHandler for Handler {
                 let mut content = reply.content;
                 content = content.replace("\r\n", " "); // just in case
                 content = content.replace('\n', " ");
-                content = format!(
-                    "{} {}",
-                    content,
-                    reply
-                        .attachments
-                        .iter()
-                        .map(|a| &*a.url)
-                        .collect::<String>()
-                );
+                let atts: Vec<&str> = reply.attachments.iter().map(|a| &*a.url).collect();
+                content = format!("{} {}", content, atts.join(" "));
 
                 content = discord_to_irc_processing(&content, &**members_lock, &ctx, &roles).await;
 
