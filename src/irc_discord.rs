@@ -115,7 +115,7 @@ pub async fn irc_loop(
                     .clean_here(true) // setting these to true explicitly isn't needed,
                     .clean_everyone(true); // but i did it anyway for readability
 
-                content_safe(&cache, computed, &opts).await
+                content_safe(&cache, computed, &opts, &[])
             };
 
             if let Some(webhook) = webhooks.get(channel) {

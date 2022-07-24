@@ -10,7 +10,7 @@ use serenity::{
     model::{
         channel::{Channel, Message, MessageReference, MessageType},
         guild::Member,
-        prelude::{ChannelId, GuildId, Ready, Role, RoleId},
+        prelude::{ChannelId, Ready, Role, RoleId},
     },
     prelude::*,
 };
@@ -204,7 +204,7 @@ impl EventHandler for Handler {
         data.insert::<UserIdKey>(id);
     }
 
-    async fn guild_member_addition(&self, ctx: Context, _: GuildId, new_member: Member) {
+    async fn guild_member_addition(&self, ctx: Context, new_member: Member) {
         let ctx_data = ctx.data.read().await;
         let mut members = ctx_data.get::<MembersKey>().unwrap().lock().await;
         members.push(new_member);

@@ -6,9 +6,9 @@ mod irc_discord;
 use std::{borrow::Cow, collections::HashMap, env, fs::File, io::Read, sync::Arc};
 
 use serenity::{
-    client::bridge::gateway::GatewayIntents,
     http::Http,
     model::{
+        gateway::GatewayIntents,
         guild::Member,
         id::{ChannelId, UserId},
         webhook::Webhook,
@@ -91,10 +91,11 @@ async fn main() -> anyhow::Result<()> {
 
     let conf: DircordConfig = toml::from_str(&data)?;
 
-    let intents = GatewayIntents::non_privileged() | GatewayIntents::GUILD_MEMBERS;
+    let intents = GatewayIntents::non_privileged()
+        | GatewayIntents::GUILD_MEMBERS
+        | GatewayIntents::MESSAGE_CONTENT;
 
-    let mut discord_client = DiscordClient::builder(&conf.token)
-        .intents(intents)
+    let mut discord_client = DiscordClient::builder(&conf.token, intents)
         .event_handler(Handler)
         .await?;
 
