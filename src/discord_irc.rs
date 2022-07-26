@@ -255,9 +255,12 @@ async fn discord_to_irc_processing(
         static EMOJI_RE = r"<:(\w+):[0-9]+>";
         static CHANNEL_RE = r"<#([0-9]+)>";
         static ROLE_RE = r"<@&([0-9]+)>";
+        static URL_ESCAPE_RE = r"<(https?://[^\s/$.?#].\S*)>";
     }
 
     let mut computed = message.to_owned();
+
+    computed = URL_ESCAPE_RE.replace_all(&computed, "$1").into_owned();
 
     computed = PING_RE_1
         .replace_all(&computed, MemberReplacer { members })
