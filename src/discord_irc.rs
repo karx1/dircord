@@ -1,6 +1,7 @@
 use crate::{
     regex, ChannelMappingKey, MembersKey, OptionReplacer, OptionStringKey, SenderKey, UserIdKey,
 };
+use ellipse::Ellipse;
 use fancy_regex::{Captures, Replacer};
 use pulldown_cmark::Parser;
 use serenity::{
@@ -150,7 +151,7 @@ impl EventHandler for Handler {
         {
             if let Ok(mut reply) = channel_id.message(&ctx, message_id).await {
                 reply.guild_id = guild_id; // lmao
-                let (reply_prefix, reply_content_limit) = create_prefix(&reply, true, &ctx).await;
+                let (reply_prefix, _) = create_prefix(&reply, true, &ctx).await;
 
                 let mut content = reply.content;
                 content = content.replace("\r\n", " "); // just in case
@@ -160,11 +161,7 @@ impl EventHandler for Handler {
 
                 content = discord_to_irc_processing(&content, &**members_lock, &ctx, &roles).await;
 
-                let to_send = if content.len() > reply_content_limit {
-                    format!("{}...", &content[..reply_content_limit - 3])
-                } else {
-                    content
-                };
+                let to_send = (&*content).truncate_ellipse(40); // limit taken from discord
 
                 sender
                     .send_privmsg(channel, &format!("{}{}", reply_prefix, to_send))
