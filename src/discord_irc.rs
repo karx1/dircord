@@ -11,7 +11,9 @@ use serenity::{
     model::{
         channel::{Channel, Message, MessageReference, MessageType},
         guild::Member,
+        id::GuildId,
         prelude::{ChannelId, Ready, Role, RoleId},
+        user::User,
     },
     prelude::*,
 };
@@ -217,6 +219,20 @@ impl EventHandler for Handler {
             .unwrap();
         members.remove(x);
         members.push(new);
+    }
+
+    async fn guild_member_removal(
+        &self,
+        ctx: Context,
+        _guild_id: GuildId,
+        user: User,
+        _member: Option<Member>,
+    ) {
+        let ctx_data = ctx.data.read().await;
+        let mut members = ctx_data.get::<MembersKey>().unwrap().lock().await;
+
+        let pos = members.iter().position(|m| m.user.id == user.id).unwrap();
+        members.remove(pos);
     }
 }
 
