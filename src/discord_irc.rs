@@ -177,13 +177,15 @@ impl EventHandler for Handler {
             .and_then(|v| v.strip_suffix('\x0F'))
             .map(|v| (v, v.is_empty()))
         {
+            let to_send = stripped.trim_matches('\u{f}');
             sender.send_privmsg(channel, &prefix).unwrap();
-            sender.send_privmsg(channel, stripped).unwrap();
+            sender.send_privmsg(channel, to_send).unwrap();
         } else {
             for line in computed.lines() {
                 for chunk in StrChunks::new(line, content_limit) {
+                    let to_send = chunk.trim_matches('\u{f}');
                     sender
-                        .send_privmsg(channel, &format!("{}{}", prefix, chunk))
+                        .send_privmsg(channel, &format!("{}{}", prefix, to_send))
                         .unwrap();
                 }
             }
