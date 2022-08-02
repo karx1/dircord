@@ -1,5 +1,6 @@
 use crate::{
-    regex, ChannelMappingKey, MembersKey, OptionReplacer, OptionStringKey, SenderKey, UserIdKey,
+    regex, ChannelMappingKey, MembersKey, OptionReplacer, OptionStringKey, RefContentLimitKey,
+    SenderKey, UserIdKey,
 };
 use ellipse::Ellipse;
 use fancy_regex::{Captures, Replacer};
@@ -115,6 +116,7 @@ impl EventHandler for Handler {
             .as_deref()
             .unwrap_or("++");
         let mapping = ctx_data.get::<ChannelMappingKey>().unwrap().clone();
+        let ref_content_limit = ctx_data.get::<RefContentLimitKey>().unwrap();
 
         if user_id == msg.author.id || msg.author.bot {
             return;
@@ -153,7 +155,7 @@ impl EventHandler for Handler {
         {
             if let Ok(mut reply) = channel_id.message(&ctx, message_id).await {
                 reply.guild_id = guild_id; // lmao
-                let (reply_prefix, _) = create_prefix(&reply, true, &ctx).await;
+                let (reply_prefix, reply_content_limit) = create_prefix(&reply, true, &ctx).await;
 
                 let mut content = reply.content;
                 content = content.replace("\r\n", " "); // just in case
@@ -163,10 +165,14 @@ impl EventHandler for Handler {
 
                 content = discord_to_irc_processing(&content, &**members_lock, &ctx, &roles).await;
 
-                let to_send = (&*content).truncate_ellipse(40); // limit taken from discord
+                let to_send = (&*content).truncate_ellipse(
+                    ref_content_limit
+                        .map(|l| l as usize)
+                        .unwrap_or(reply_content_limit),
+                );
 
                 sender
-                    .send_privmsg(channel, &format!("{}{}", reply_prefix, to_send))
+                    .send_privmsg(channel, format!("{}{}", reply_prefix, to_send))
                     .unwrap();
             }
         }

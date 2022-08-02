@@ -37,6 +37,7 @@ struct DircordConfig {
     raw_prefix: Option<String>,
     channels: HashMap<String, u64>,
     webhooks: Option<HashMap<String, String>>,
+    ref_content_limit: Option<u16>,
 }
 
 macro_rules! type_map_key {
@@ -60,6 +61,7 @@ type_map_key!(
     StringKey => String,
     OptionStringKey => Option<String>,
     ChannelMappingKey => HashMap<String, u64>,
+    RefContentLimitKey => Option<u16>,
 );
 
 #[cfg(unix)]
@@ -135,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
         data.insert::<MembersKey>(members.clone());
         data.insert::<OptionStringKey>(conf.raw_prefix);
         data.insert::<ChannelMappingKey>((*channels).clone());
+        data.insert::<RefContentLimitKey>(conf.ref_content_limit);
     }
 
     let mut webhooks_transformed: HashMap<String, Webhook> = HashMap::new();
