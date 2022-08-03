@@ -1,0 +1,17 @@
+token = "..." # REQUIRED: discord bot token
+nickname = "dircord" # REQUIRED: IRC nickname
+server = "karx.xyz""
+port = 6697
+tls = true # OPTIONAL: DEFAULT: false
+mode = "+B" # OPTIONAL: DEFAULT: none
+raw_prefix = "++" # OPTIONAL: DEFAULT: ++
+ref_content_limit = 512  # OPTIONAL: where to truncate replied messages. Defaults to ~512 minus the prefix
+avatar_ttl = 1800 # OPTIONAL: how long to store the avatar cache, in seconds. Defaults to 1800 (30 minutes)
+
+[channels]
+# irc channel name -> discord channel id
+'#channel_name' = 1234
+
+[webhooks] # OPTIONAL
+# irc channel name -> discord webhook URL
+'#channel_name' = '...'
