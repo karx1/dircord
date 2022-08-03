@@ -1,6 +1,6 @@
 use irc::{client::Client as IrcClient, proto::Command};
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use tokio::sync::{mpsc::unbounded_channel, Mutex};
 
@@ -47,6 +47,8 @@ pub async fn irc_loop(
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
     let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
 
+    let mut ttl = Instant::now();
+
     client.identify()?;
     let mut stream = client.stream()?;
 
@@ -58,6 +60,12 @@ pub async fn irc_loop(
     let mut channels_cache = None;
 
     while let Some(orig_message) = stream.next().await.transpose()? {
+        // FIXME: make this configurable
+        if ttl.elapsed().as_secs() > 5 {
+            println!("TTL reached");
+            avatar_cache.clear();
+            ttl = Instant::now();
+        }
         if let Command::Response(response, args) = orig_message.command {
             use irc::client::prelude::Response;
 
