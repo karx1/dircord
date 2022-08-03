@@ -39,6 +39,7 @@ pub async fn irc_loop(
     mapping: Arc<HashMap<String, u64>>,
     webhooks: HashMap<String, Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
+    avatar_ttl: Option<u64>,
 ) -> anyhow::Result<()> {
     let (send, recv) = unbounded_channel();
     tokio::spawn(msg_task(UnboundedReceiverStream::new(recv)));
@@ -60,12 +61,11 @@ pub async fn irc_loop(
     let mut channels_cache = None;
 
     while let Some(orig_message) = stream.next().await.transpose()? {
-        // FIXME: make this configurable
-        if ttl.elapsed().as_secs() > 5 {
-            println!("TTL reached");
+        if ttl.elapsed().as_secs() > avatar_ttl.unwrap_or(1800) {
             avatar_cache.clear();
             ttl = Instant::now();
         }
+
         if let Command::Response(response, args) = orig_message.command {
             use irc::client::prelude::Response;
 
