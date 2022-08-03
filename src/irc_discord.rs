@@ -43,6 +43,7 @@ pub async fn irc_loop(
     let (send, recv) = unbounded_channel();
     tokio::spawn(msg_task(UnboundedReceiverStream::new(recv)));
 
+    let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
     let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
 
@@ -119,16 +120,18 @@ pub async fn irc_loop(
             };
 
             if let Some(webhook) = webhooks.get(channel) {
-                let avatar_url = members_lock.iter().find_map(|member| {
-                    (*member.display_name() == nickname)
-                        .then(|| member.user.avatar_url())
-                        .flatten()
+                let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
+                    members_lock.iter().find_map(|member| {
+                        (*member.display_name() == nickname)
+                            .then(|| member.user.avatar_url())
+                            .flatten()
+                    })
                 });
 
                 send.send(QueuedMessage::Webhook {
                     webhook: webhook.clone(),
                     http: http.clone(),
-                    avatar_url,
+                    avatar_url: avatar.clone(),
                     content: computed,
                     nickname: nickname.to_string(),
                 })?;
