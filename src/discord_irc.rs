@@ -291,7 +291,7 @@ async fn discord_to_irc_processing(
         .replace_all(&computed, MemberReplacer { members })
         .into_owned();
 
-    computed = EMOJI_RE.replace_all(&computed, "$1").into_owned();
+    computed = EMOJI_RE.replace_all(&computed, ":$1:").into_owned();
 
     // FIXME: the await makes it impossible to use `replace_all`, idk how to fix this
     for caps in CHANNEL_RE.captures_iter(&computed.clone()) {
