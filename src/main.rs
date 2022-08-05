@@ -38,7 +38,7 @@ struct DircordConfig {
     channels: HashMap<String, u64>,
     webhooks: Option<HashMap<String, String>>,
     ref_content_limit: Option<u16>,
-    avatar_ttl: Option<u64>,
+    cache_ttl: Option<u64>,
 }
 
 macro_rules! type_map_key {
@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     select! {
-        r = irc_loop(irc_client, http.clone(), cache.clone(), channels.clone(), webhooks_transformed, members, conf.avatar_ttl) => r.unwrap(),
+        r = irc_loop(irc_client, http.clone(), cache.clone(), channels.clone(), webhooks_transformed, members, conf.cache_ttl) => r.unwrap(),
         r = discord_client.start() => r.unwrap(),
         _ = terminate_signal() => {
             for (_, &v) in channels.iter() {
