@@ -11,7 +11,9 @@ use serenity::{
     futures::StreamExt,
     http::Http,
     model::{
-        prelude::{ChannelId, GuildChannel, Member, UserId},
+        guild::Emoji,
+        id::ChannelId,
+        prelude::{GuildChannel, Member, UserId},
         webhook::Webhook,
     },
     prelude::*,
@@ -39,13 +41,14 @@ pub async fn irc_loop(
     mapping: Arc<HashMap<String, u64>>,
     webhooks: HashMap<String, Webhook>,
     members: Arc<Mutex<Vec<Member>>>,
-    avatar_ttl: Option<u64>,
+    cache_ttl: Option<u64>,
 ) -> anyhow::Result<()> {
     let (send, recv) = unbounded_channel();
     tokio::spawn(msg_task(UnboundedReceiverStream::new(recv)));
 
     let mut avatar_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut id_cache: HashMap<String, Option<u64>> = HashMap::new();
+    let mut emoji_cache: Vec<Emoji> = Vec::new();
     let mut channel_users: HashMap<String, Vec<String>> = HashMap::new();
 
     let mut ttl = Instant::now();
@@ -59,10 +62,14 @@ pub async fn irc_loop(
     }
 
     let mut channels_cache = None;
+    let mut guild = None;
 
     while let Some(orig_message) = stream.next().await.transpose()? {
-        if ttl.elapsed().as_secs() > avatar_ttl.unwrap_or(1800) {
+        if ttl.elapsed().as_secs() > cache_ttl.unwrap_or(1800) {
             avatar_cache.clear();
+            channels_cache = None;
+            guild = None;
+            emoji_cache.clear();
             ttl = Instant::now();
         }
 
@@ -96,24 +103,35 @@ pub async fn irc_loop(
         if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 
-            if channels_cache.is_none() {
-                channels_cache = Some(
-                    channel_id
+            if channels_cache.is_none() || guild.is_none() || emoji_cache.is_empty() {
+                let (cc, g, es) = {
+                    let guild = channel_id
                         .to_channel(&http)
                         .await?
                         .guild()
                         .unwrap()
-                        .guild_id
-                        .channels(&http)
-                        .await?,
-                );
+                        .guild_id;
+
+                    let chans = guild.channels(&http).await?;
+                    let emojis = guild.emojis(&http).await?;
+
+                    (chans, guild, emojis)
+                };
+                channels_cache = Some(cc);
+                guild = Some(g);
+                emoji_cache = es;
             }
             let channels = channels_cache.as_ref().unwrap();
 
             let members_lock = members.lock().await;
 
-            let mut computed =
-                irc_to_discord_processing(message, &*members_lock, &mut id_cache, channels);
+            let mut computed = irc_to_discord_processing(
+                message,
+                &*members_lock,
+                &mut id_cache,
+                channels,
+                &emoji_cache,
+            );
 
             computed = {
                 let opts = ContentSafeOptions::new()
@@ -217,6 +235,7 @@ fn irc_to_discord_processing(
     members: &[Member],
     id_cache: &mut HashMap<String, Option<u64>>,
     channels: &HashMap<ChannelId, GuildChannel>,
+    emojis: &[Emoji],
 ) -> String {
     struct MemberReplacer<'a> {
         id_cache: &'a mut HashMap<String, Option<u64>>,
@@ -251,6 +270,7 @@ fn irc_to_discord_processing(
         static CONTROL_CHAR_RE = r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?";
         static WHITESPACE_RE = r"^\s";
         static CHANNEL_RE = r"#([A-Za-z-*]+)";
+        static EMOJI_RE = r":(\w+):";
     }
 
     if WHITESPACE_RE.is_match(message).unwrap() && !PING_RE_2.is_match(message).unwrap() {
@@ -274,6 +294,17 @@ fn irc_to_discord_processing(
                 channels
                     .iter()
                     .find_map(|(id, c)| (c.name == caps[1]).then(|| format!("<#{}>", id.0)))
+            }),
+        )
+        .into_owned();
+
+    computed = EMOJI_RE
+        .replace_all(
+            &computed,
+            OptionReplacer(|caps: &Captures| {
+                emojis
+                    .iter()
+                    .find_map(|e| (e.name == caps[1]).then(|| format!("<:{}:{}>", e.name, e.id.0)))
             }),
         )
         .into_owned();
