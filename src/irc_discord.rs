@@ -377,6 +377,9 @@ async fn msg_task(mut recv: UnboundedReceiverStream<QueuedMessage>) -> anyhow::R
                 content,
                 nickname,
             } => {
+                if content.is_empty() {
+                    continue;
+                }
                 webhook
                     .execute(&http, true, |w| {
                         if let Some(ref url) = avatar_url {
