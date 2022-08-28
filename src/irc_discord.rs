@@ -395,6 +395,9 @@ async fn msg_task(mut recv: UnboundedReceiverStream<QueuedMessage>) -> anyhow::R
                 http,
                 message,
             } => {
+                if content.is_empty() {
+                    continue;
+                }
                 channel_id.say(&http, message).await?;
             }
         }
