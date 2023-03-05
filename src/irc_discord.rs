@@ -127,7 +127,7 @@ pub async fn irc_loop(
 
             let mut computed = irc_to_discord_processing(
                 message,
-                &*members_lock,
+                &members_lock,
                 &mut id_cache,
                 channels,
                 &emoji_cache,
@@ -253,7 +253,7 @@ fn irc_to_discord_processing(
                     self.members.iter().find_map(|member| {
                         (slice == member.display_name().as_str()
                             || slice == member.user.name.as_str())
-                        .then(|| member.user.id.0)
+                        .then_some(member.user.id.0)
                     })
                 })
                 .map(UserId);

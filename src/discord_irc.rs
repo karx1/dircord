@@ -144,7 +144,7 @@ impl EventHandler for Handler {
 
         let members_lock = members.lock().await;
 
-        let computed = discord_to_irc_processing(&msg.content, &**members_lock, &ctx, &roles).await;
+        let computed = discord_to_irc_processing(&msg.content, &members_lock, &ctx, &roles).await;
 
         if let Some(MessageReference {
             guild_id,
@@ -163,7 +163,7 @@ impl EventHandler for Handler {
                 let atts: Vec<&str> = reply.attachments.iter().map(|a| &*a.url).collect();
                 content = format!("{} {}", content, atts.join(" "));
 
-                content = discord_to_irc_processing(&content, &**members_lock, &ctx, &roles).await;
+                content = discord_to_irc_processing(&content, &members_lock, &ctx, &roles).await;
 
                 let to_send = (&*content).truncate_ellipse(
                     ref_content_limit
@@ -178,7 +178,7 @@ impl EventHandler for Handler {
         }
 
         if let Some((stripped, false)) = computed
-            .strip_prefix(&raw_prefix)
+            .strip_prefix(raw_prefix)
             .map(str::trim)
             .and_then(|v| v.strip_suffix('\x0F'))
             .map(|v| (v, v.is_empty()))
