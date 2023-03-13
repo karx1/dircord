@@ -225,6 +225,15 @@ pub async fn irc_loop(
             let topic = unwrap_or_continue!(topic.as_ref());
             let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
             channel_id.edit(&http, |c| c.topic(topic)).await?;
+        } else if let Command::KICK(ref channel, ref user, ref reason) = orig_message.command {
+            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+            let reason = reason.as_deref().unwrap_or("None");
+
+            send.send(QueuedMessage::Raw {
+                channel_id,
+                http: http.clone(),
+                message: format!("*{}* has kicked *{}* ({})", nickname, user, reason),
+            })?;
         }
     }
     Ok(())
