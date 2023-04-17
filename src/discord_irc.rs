@@ -333,12 +333,16 @@ async fn discord_to_irc_processing(
                 match event {
                     Text(t) | Html(t) => computed_line.push_str(&t),
                     Code(t) => write!(computed_line, "`{}`", t).unwrap(),
-                    End(_) => computed_line.push('\x0F'),
                     Start(Emphasis) => computed_line.push('\x1D'),
                     Start(Strong) => computed_line.push('\x02'),
-                    Start(Link(_, dest, _)) => {
-                        computed_line.push_str(&dest);
-                        continue;
+                    Start(Link(_, _, _)) => {
+                        computed_line.push('[');
+                    }
+                    End(Link(_, url, title)) => {
+                        write!(computed_line, "]: {}", url).unwrap();
+                        if !title.is_empty() {
+                            write!(computed_line, " ({})", title).unwrap();
+                        }
                     }
                     Start(List(num)) => {
                         if let Some(num) = num {
@@ -348,6 +352,7 @@ async fn discord_to_irc_processing(
                         }
                     }
                     Start(BlockQuote) => computed_line.push_str("> "),
+                    End(_) => computed_line.push('\x0F'),
                     _ => {}
                 }
             }
