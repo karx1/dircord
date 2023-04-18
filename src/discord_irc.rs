@@ -324,42 +324,59 @@ async fn discord_to_irc_processing(
 
         let mut new = String::with_capacity(computed.len());
 
-        for line in computed.lines() {
-            let parser = Parser::new(line);
+        let parser = Parser::new(&computed);
 
-            let mut computed_line = String::with_capacity(line.len());
+        let mut list_level = 0;
+        let mut numbered = false;
+        let mut next_num = 0;
 
-            for event in parser {
-                match event {
-                    Text(t) | Html(t) => computed_line.push_str(&t),
-                    Code(t) => write!(computed_line, "`{}`", t).unwrap(),
-                    Start(Emphasis) => computed_line.push('\x1D'),
-                    Start(Strong) => computed_line.push('\x02'),
-                    Start(Link(_, _, _)) => {
-                        computed_line.push('[');
-                    }
-                    End(Link(_, url, title)) => {
-                        write!(computed_line, "]: {}", url).unwrap();
-                        if !title.is_empty() {
-                            write!(computed_line, " ({})", title).unwrap();
-                        }
-                    }
-                    Start(List(num)) => {
-                        if let Some(num) = num {
-                            write!(computed_line, "{}. ", num).unwrap();
-                        } else {
-                            computed_line.push_str("- ");
-                        }
-                    }
-                    Start(BlockQuote) => computed_line.push_str("> "),
-                    End(_) => computed_line.push('\x0F'),
-                    _ => {}
+        for event in parser {
+            match event {
+                Text(t) | Html(t) => new.push_str(&t),
+                Code(t) => write!(new, "`{}`", t).unwrap(),
+                Start(Emphasis) => new.push('\x1D'),
+                Start(Strong) => new.push('\x02'),
+                Start(Link(_, _, _)) => {
+                    new.push('[');
                 }
+                End(Link(_, url, title)) => {
+                    write!(new, "]: {}", url).unwrap();
+                    if !title.is_empty() {
+                        write!(new, " ({})", title).unwrap();
+                    }
+                }
+                Start(List(num)) => {
+                    list_level += 1;
+                    if let Some(num) = num {
+                        numbered = true;
+                        next_num = num;
+                    } else {
+                        numbered = false;
+                    }
+                }
+                End(List(_)) => list_level -= 1,
+                Start(Item) => {
+                    let prefix = if numbered {
+                        format!("{}.", next_num)
+                    } else {
+                        if list_level > 1 { '◦' } else { '•' }.into()
+                    };
+                    write!(new, "\n{}{} ", "  ".repeat(list_level - 1), prefix).unwrap();
+                }
+                End(Item) => {
+                    if numbered {
+                        next_num += 1
+                    }
+                }
+                Start(BlockQuote) => new.push_str("> "),
+                Start(Heading(ty, _, _)) => {
+                    write!(new, "{} \x02", "#".repeat(ty as usize)).unwrap();
+                }
+                End(Heading(_, _, _)) => new.push('\x0F'),
+                SoftBreak | HardBreak | End(Paragraph) => new.push('\n'),
+                End(_) => new.push('\x0F'),
+                _ => {}
             }
-
-            computed_line.push('\n');
-
-            new.push_str(&computed_line);
         }
 
         new
