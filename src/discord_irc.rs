@@ -180,7 +180,6 @@ impl EventHandler for Handler {
         if let Some((stripped, false)) = computed
             .strip_prefix(raw_prefix)
             .map(str::trim)
-            .and_then(|v| v.strip_suffix('\x0F'))
             .map(|v| (v, v.is_empty()))
         {
             let to_send = stripped.trim_matches('\u{f}');
