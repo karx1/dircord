@@ -172,7 +172,7 @@ impl EventHandler for Handler {
                 );
 
                 sender
-                    .send_privmsg(channel, format!("{}{}", reply_prefix, to_send))
+                    .send_privmsg(channel, format!("{reply_prefix}{to_send}"))
                     .unwrap();
             }
         }
@@ -190,7 +190,7 @@ impl EventHandler for Handler {
                 for chunk in StrChunks::new(line, content_limit) {
                     let to_send = chunk.trim_matches('\u{f}');
                     sender
-                        .send_privmsg(channel, &format!("{}{}", prefix, to_send))
+                        .send_privmsg(channel, &format!("{prefix}{to_send}"))
                         .unwrap();
                 }
             }
@@ -198,7 +198,7 @@ impl EventHandler for Handler {
 
         for attachment in attachments {
             sender
-                .send_privmsg(channel, &format!("{}{}", prefix, attachment))
+                .send_privmsg(channel, &format!("{prefix}{attachment}"))
                 .unwrap();
         }
     }
@@ -262,7 +262,7 @@ async fn discord_to_irc_processing(
             });
 
             if let Some(display_name) = display_name {
-                write!(dst, "@{}", display_name).unwrap();
+                write!(dst, "@{display_name}").unwrap();
             } else {
                 dst.push_str(caps.get(0).unwrap().as_str());
             }
@@ -332,16 +332,16 @@ async fn discord_to_irc_processing(
         for event in parser {
             match event {
                 Text(t) | Html(t) => new.push_str(&t),
-                Code(t) => write!(new, "`{}`", t).unwrap(),
+                Code(t) => write!(new, "`{t}`").unwrap(),
                 Start(Emphasis) => new.push('\x1D'),
                 Start(Strong) => new.push('\x02'),
                 Start(Link(_, _, _)) => {
                     new.push('[');
                 }
                 End(Link(_, url, title)) => {
-                    write!(new, "]: {}", url).unwrap();
+                    write!(new, "]: {url}").unwrap();
                     if !title.is_empty() {
-                        write!(new, " ({})", title).unwrap();
+                        write!(new, " ({title})").unwrap();
                     }
                 }
                 Start(List(num)) => {
@@ -356,7 +356,7 @@ async fn discord_to_irc_processing(
                 End(List(_)) => list_level -= 1,
                 Start(Item) => {
                     let prefix = if numbered {
-                        format!("{}.", next_num)
+                        format!("{next_num}.")
                     } else {
                         if list_level > 1 { '◦' } else { '•' }.into()
                     };
@@ -364,14 +364,13 @@ async fn discord_to_irc_processing(
                 }
                 End(Item) => {
                     if numbered {
-                        next_num += 1
+                        next_num += 1;
                     }
                 }
                 Start(BlockQuote) => new.push_str("> "),
                 Start(Heading(ty, _, _)) => {
                     write!(new, "{} \x02", "#".repeat(ty as usize)).unwrap();
                 }
-                End(Heading(_, _, _)) => new.push('\x0F'),
                 SoftBreak | HardBreak | End(Paragraph) => new.push('\n'),
                 End(_) => new.push('\x0F'),
                 _ => {}

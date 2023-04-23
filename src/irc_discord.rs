@@ -165,7 +165,7 @@ pub async fn irc_loop(
                 send.send(QueuedMessage::Raw {
                     channel_id,
                     http: http.clone(),
-                    message: format!("<{}>, {}", nickname, computed),
+                    message: format!("<{nickname}>, {computed}"),
                 })?;
             }
         } else if let Command::JOIN(ref channel, _, _) = orig_message.command {
@@ -177,7 +177,7 @@ pub async fn irc_loop(
             send.send(QueuedMessage::Raw {
                 channel_id,
                 http: http.clone(),
-                message: format!("*{}* has joined the channel", nickname),
+                message: format!("*{nickname}* has joined the channel"),
             })?;
         } else if let Command::PART(ref channel, ref reason) = orig_message.command {
             let users = unwrap_or_continue!(channel_users.get_mut(channel));
@@ -191,7 +191,7 @@ pub async fn irc_loop(
             send.send(QueuedMessage::Raw {
                 channel_id,
                 http: http.clone(),
-                message: format!("*{}* has quit ({})", nickname, reason),
+                message: format!("*{nickname}* has quit ({reason})"),
             })?;
         } else if let Command::QUIT(ref reason) = orig_message.command {
             for (channel, users) in &mut channel_users {
@@ -205,7 +205,7 @@ pub async fn irc_loop(
                 send.send(QueuedMessage::Raw {
                     channel_id,
                     http: http.clone(),
-                    message: format!("*{}* has quit ({})", nickname, reason),
+                    message: format!("*{nickname}* has quit ({reason})"),
                 })?;
             }
         } else if let Command::NICK(ref new_nick) = orig_message.command {
@@ -218,7 +218,7 @@ pub async fn irc_loop(
                 send.send(QueuedMessage::Raw {
                     channel_id,
                     http: http.clone(),
-                    message: format!("*{}* is now known as *{}*", nickname, new_nick),
+                    message: format!("*{nickname}* is now known as *{new_nick}*"),
                 })?;
             }
         } else if let Command::TOPIC(ref channel, ref topic) = orig_message.command {
@@ -232,7 +232,7 @@ pub async fn irc_loop(
             send.send(QueuedMessage::Raw {
                 channel_id,
                 http: http.clone(),
-                message: format!("*{}* has kicked *{}* ({})", nickname, user, reason),
+                message: format!("*{nickname}* has kicked *{user}* ({reason})"),
             })?;
         }
     }
@@ -285,7 +285,7 @@ fn irc_to_discord_processing(
     }
 
     if WHITESPACE_RE.is_match(message).unwrap() && !PING_RE_2.is_match(message).unwrap() {
-        return format!("`{}`", message);
+        return format!("`{message}`");
     }
 
     let mut computed = message.to_owned();
@@ -325,7 +325,7 @@ fn irc_to_discord_processing(
         computed = computed
             .strip_prefix("\x01ACTION ")
             .and_then(|s| s.strip_suffix('\x01'))
-            .map(|s| format!("*{}*", s))
+            .map(|s| format!("*{s}*"))
             .unwrap_or_else(|| computed); // if any step in the way fails, fall back to using computed
     }
 
