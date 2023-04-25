@@ -272,6 +272,7 @@ async fn discord_to_irc_processing(
     regex! {
         static PING_RE_1 = r"<@([0-9]+)>";
         static PING_RE_2 = r"<@!([0-9]+)>";
+        static PING_RE_3 = r"\{@([0-9]+)\}";
         static EMOJI_RE = r"<:(\w+):[0-9]+>";
         static CHANNEL_RE = r"<#([0-9]+)>";
         static ROLE_RE = r"<@&([0-9]+)>";
@@ -316,6 +317,9 @@ async fn discord_to_irc_processing(
             }),
         )
         .into_owned();
+
+    // switch brackets of unknown pings
+    computed = PING_RE_1.replace_all(&computed, "{@$1}").into_owned();
 
     computed = {
         #[allow(clippy::enum_glob_use)]
@@ -379,6 +383,9 @@ async fn discord_to_irc_processing(
 
         new
     };
+
+    // switch them back
+    computed = PING_RE_3.replace_all(&computed, "<@$1>").into_owned();
 
     computed
 }
