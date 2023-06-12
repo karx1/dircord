@@ -100,101 +100,91 @@ pub async fn irc_loop(
         if option_env!("DIRCORD_POLARIAN_MODE").is_some() {
             nickname = "polarbear";
         }
-        if let Command::PRIVMSG(ref channel, ref message) = orig_message.command {
-            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+        match orig_message.command {
+            Command::PRIVMSG(ref channel, ref message)
+            | Command::NOTICE(ref channel, ref message) => {
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
 
-            if channels_cache.is_none() || guild.is_none() || emoji_cache.is_empty() {
-                let (cc, g, es) = {
-                    let guild = channel_id
-                        .to_channel(&http)
-                        .await?
-                        .guild()
-                        .unwrap()
-                        .guild_id;
+                if channels_cache.is_none() || guild.is_none() || emoji_cache.is_empty() {
+                    let (cc, g, es) = {
+                        let guild = channel_id
+                            .to_channel(&http)
+                            .await?
+                            .guild()
+                            .unwrap()
+                            .guild_id;
 
-                    let chans = guild.channels(&http).await?;
-                    let emojis = guild.emojis(&http).await?;
+                        let chans = guild.channels(&http).await?;
+                        let emojis = guild.emojis(&http).await?;
 
-                    (chans, guild, emojis)
+                        (chans, guild, emojis)
+                    };
+                    channels_cache = Some(cc);
+                    guild = Some(g);
+                    emoji_cache = es;
+                }
+                let channels = channels_cache.as_ref().unwrap();
+
+                let members_lock = members.lock().await;
+
+                let mut computed = irc_to_discord_processing(
+                    message,
+                    &members_lock,
+                    &mut id_cache,
+                    channels,
+                    &emoji_cache,
+                );
+
+                computed = {
+                    let opts = ContentSafeOptions::new()
+                        .clean_role(false)
+                        .clean_user(false)
+                        .clean_channel(false)
+                        .show_discriminator(false)
+                        .clean_here(true) // setting these to true explicitly isn't needed,
+                        .clean_everyone(true); // but i did it anyway for readability
+
+                    content_safe(&cache, computed, &opts, &[])
                 };
-                channels_cache = Some(cc);
-                guild = Some(g);
-                emoji_cache = es;
+
+                if let Some(webhook) = webhooks.get(channel) {
+                    let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
+                        members_lock.iter().find_map(|member| {
+                            (*member.display_name() == nickname)
+                                .then(|| member.user.avatar_url())
+                                .flatten()
+                        })
+                    });
+
+                    send.send(QueuedMessage::Webhook {
+                        webhook: webhook.clone(),
+                        http: http.clone(),
+                        avatar_url: avatar.clone(),
+                        content: computed,
+                        nickname: nickname.to_string(),
+                    })?;
+                } else {
+                    send.send(QueuedMessage::Raw {
+                        channel_id,
+                        http: http.clone(),
+                        message: format!("<{nickname}>, {computed}"),
+                    })?;
+                }
             }
-            let channels = channels_cache.as_ref().unwrap();
+            Command::JOIN(ref channel, _, _) => {
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                let users = unwrap_or_continue!(channel_users.get_mut(channel));
 
-            let members_lock = members.lock().await;
+                users.push(nickname.to_string());
 
-            let mut computed = irc_to_discord_processing(
-                message,
-                &members_lock,
-                &mut id_cache,
-                channels,
-                &emoji_cache,
-            );
-
-            computed = {
-                let opts = ContentSafeOptions::new()
-                    .clean_role(false)
-                    .clean_user(false)
-                    .clean_channel(false)
-                    .show_discriminator(false)
-                    .clean_here(true) // setting these to true explicitly isn't needed,
-                    .clean_everyone(true); // but i did it anyway for readability
-
-                content_safe(&cache, computed, &opts, &[])
-            };
-
-            if let Some(webhook) = webhooks.get(channel) {
-                let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
-                    members_lock.iter().find_map(|member| {
-                        (*member.display_name() == nickname)
-                            .then(|| member.user.avatar_url())
-                            .flatten()
-                    })
-                });
-
-                send.send(QueuedMessage::Webhook {
-                    webhook: webhook.clone(),
-                    http: http.clone(),
-                    avatar_url: avatar.clone(),
-                    content: computed,
-                    nickname: nickname.to_string(),
-                })?;
-            } else {
                 send.send(QueuedMessage::Raw {
                     channel_id,
                     http: http.clone(),
-                    message: format!("<{nickname}>, {computed}"),
+                    message: format!("*{nickname}* has joined the channel"),
                 })?;
             }
-        } else if let Command::JOIN(ref channel, _, _) = orig_message.command {
-            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-            let users = unwrap_or_continue!(channel_users.get_mut(channel));
-
-            users.push(nickname.to_string());
-
-            send.send(QueuedMessage::Raw {
-                channel_id,
-                http: http.clone(),
-                message: format!("*{nickname}* has joined the channel"),
-            })?;
-        } else if let Command::PART(ref channel, ref reason) = orig_message.command {
-            let users = unwrap_or_continue!(channel_users.get_mut(channel));
-            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-            let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
-
-            users.swap_remove(pos);
-
-            let reason = reason.as_deref().unwrap_or("Connection closed");
-
-            send.send(QueuedMessage::Raw {
-                channel_id,
-                http: http.clone(),
-                message: format!("*{nickname}* has quit ({reason})"),
-            })?;
-        } else if let Command::QUIT(ref reason) = orig_message.command {
-            for (channel, users) in &mut channel_users {
+            Command::PART(ref channel, ref reason) => {
+                let users = unwrap_or_continue!(channel_users.get_mut(channel));
                 let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
                 let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
 
@@ -208,32 +198,52 @@ pub async fn irc_loop(
                     message: format!("*{nickname}* has quit ({reason})"),
                 })?;
             }
-        } else if let Command::NICK(ref new_nick) = orig_message.command {
-            for (channel, users) in &mut channel_users {
-                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-                let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
+            Command::QUIT(ref reason) => {
+                for (channel, users) in &mut channel_users {
+                    let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                    let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
 
-                users[pos] = new_nick.to_string();
+                    users.swap_remove(pos);
+
+                    let reason = reason.as_deref().unwrap_or("Connection closed");
+
+                    send.send(QueuedMessage::Raw {
+                        channel_id,
+                        http: http.clone(),
+                        message: format!("*{nickname}* has quit ({reason})"),
+                    })?;
+                }
+            }
+            Command::NICK(ref new_nick) => {
+                for (channel, users) in &mut channel_users {
+                    let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                    let pos = unwrap_or_continue!(users.iter().position(|u| u == nickname));
+
+                    users[pos] = new_nick.to_string();
+
+                    send.send(QueuedMessage::Raw {
+                        channel_id,
+                        http: http.clone(),
+                        message: format!("*{nickname}* is now known as *{new_nick}*"),
+                    })?;
+                }
+            }
+            Command::TOPIC(ref channel, ref topic) => {
+                let topic = unwrap_or_continue!(topic.as_ref());
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                channel_id.edit(&http, |c| c.topic(topic)).await?;
+            }
+            Command::KICK(ref channel, ref user, ref reason) => {
+                let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
+                let reason = reason.as_deref().unwrap_or("None");
 
                 send.send(QueuedMessage::Raw {
                     channel_id,
                     http: http.clone(),
-                    message: format!("*{nickname}* is now known as *{new_nick}*"),
+                    message: format!("*{nickname}* has kicked *{user}* ({reason})"),
                 })?;
             }
-        } else if let Command::TOPIC(ref channel, ref topic) = orig_message.command {
-            let topic = unwrap_or_continue!(topic.as_ref());
-            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-            channel_id.edit(&http, |c| c.topic(topic)).await?;
-        } else if let Command::KICK(ref channel, ref user, ref reason) = orig_message.command {
-            let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-            let reason = reason.as_deref().unwrap_or("None");
-
-            send.send(QueuedMessage::Raw {
-                channel_id,
-                http: http.clone(),
-                message: format!("*{nickname}* has kicked *{user}* ({reason})"),
-            })?;
+            _ => {}
         }
     }
     Ok(())
