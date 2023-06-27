@@ -1,5 +1,7 @@
-use vergen::{vergen, Config};
+use std::error::Error;
+use vergen::EmitBuilder;
 
-fn main() {
-    vergen(Config::default()).unwrap();
+fn main() -> Result<(), Box<dyn Error>> {
+    EmitBuilder::builder().git_branch().git_sha(true).emit()?;
+    Ok(())
 }

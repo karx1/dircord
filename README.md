@@ -12,5 +12,3 @@ TODO:
 - [x] handle multiple pings
 - [x] multiple channels
 - [x] IRC and Discord formatting
-
-<sub>For extra fun set the DIRCORD_POLARIAN_MODE environmental variable to any value ;)</sub>

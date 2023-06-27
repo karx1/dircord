@@ -1,12 +1,13 @@
 use irc::{client::Client as IrcClient, proto::Command};
 
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use std::{collections::HashMap, num::NonZeroU64, sync::Arc, time::Instant};
 
 use tokio::sync::{mpsc::unbounded_channel, Mutex};
 
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 use serenity::{
+    builder::{EditChannel, ExecuteWebhook},
     cache::Cache,
     futures::StreamExt,
     http::Http,
@@ -16,7 +17,7 @@ use serenity::{
         prelude::{GuildChannel, Member, UserId},
         webhook::Webhook,
     },
-    prelude::*,
+    prelude::Mentionable,
     utils::{content_safe, ContentSafeOptions},
 };
 
@@ -89,17 +90,15 @@ pub async fn irc_loop(
                 let topic = &args[2];
 
                 let channel = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-                channel.edit(&http, |c| c.topic(topic)).await?;
+                let builder = EditChannel::new().topic(topic);
+                channel.edit(&http, builder).await?;
             }
 
             continue;
         };
 
-        let mut nickname = unwrap_or_continue!(orig_message.source_nickname());
+        let nickname = unwrap_or_continue!(orig_message.source_nickname());
 
-        if option_env!("DIRCORD_POLARIAN_MODE").is_some() {
-            nickname = "polarbear";
-        }
         match orig_message.command {
             Command::PRIVMSG(ref channel, ref message)
             | Command::NOTICE(ref channel, ref message) => {
@@ -150,7 +149,7 @@ pub async fn irc_loop(
                 if let Some(webhook) = webhooks.get(channel) {
                     let avatar = &*avatar_cache.entry(nickname.to_owned()).or_insert_with(|| {
                         members_lock.iter().find_map(|member| {
-                            (*member.display_name() == nickname)
+                            (member.display_name() == nickname)
                                 .then(|| member.user.avatar_url())
                                 .flatten()
                         })
@@ -231,7 +230,8 @@ pub async fn irc_loop(
             Command::TOPIC(ref channel, ref topic) => {
                 let topic = unwrap_or_continue!(topic.as_ref());
                 let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
-                channel_id.edit(&http, |c| c.topic(topic)).await?;
+                let builder = EditChannel::new().topic(topic);
+                channel_id.edit(&http, builder).await?;
             }
             Command::KICK(ref channel, ref user, ref reason) => {
                 let channel_id = ChannelId::from(*unwrap_or_continue!(mapping.get(channel)));
@@ -270,11 +270,12 @@ fn irc_to_discord_processing(
                 .entry(slice.to_owned())
                 .or_insert_with(|| {
                     self.members.iter().find_map(|member| {
-                        (slice == member.display_name().as_str()
-                            || slice == member.user.name.as_str())
-                        .then_some(member.user.id.0)
+                        (slice == member.display_name() || slice == member.user.name.as_str())
+                            .then_some(member.user.id.0.get())
                     })
                 })
+                .map(NonZeroU64::new)
+                .flatten()
                 .map(UserId);
 
             if let Some(id) = id {
@@ -401,15 +402,13 @@ async fn msg_task(mut recv: UnboundedReceiverStream<QueuedMessage>) -> anyhow::R
                 if content.is_empty() {
                     continue;
                 }
-                webhook
-                    .execute(&http, true, |w| {
-                        if let Some(ref url) = avatar_url {
-                            w.avatar_url(url);
-                        }
+                let mut builder = ExecuteWebhook::new();
+                if let Some(ref url) = avatar_url {
+                    builder = builder.avatar_url(url);
+                }
+                builder = builder.username(nickname).content(content);
 
-                        w.username(nickname).content(content)
-                    })
-                    .await?;
+                webhook.execute(&http, true, builder).await?;
             }
             QueuedMessage::Raw {
                 channel_id,

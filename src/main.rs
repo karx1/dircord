@@ -114,14 +114,14 @@ async fn main() -> anyhow::Result<()> {
 
     let irc_client = IrcClient::from_config(config).await?;
 
-    let http = discord_client.cache_and_http.http.clone();
-    let cache = discord_client.cache_and_http.cache.clone();
+    let http = discord_client.http.clone();
+    let cache = discord_client.cache.clone();
 
     let members = Arc::new(Mutex::new({
         let channel_id = ChannelId::from(*conf.channels.iter().next().unwrap().1);
 
         channel_id
-            .to_channel(discord_client.cache_and_http.clone())
+            .to_channel(discord_client.http.clone())
             .await?
             .guild()
             .unwrap() // we can panic here because if it's not a guild channel then the bot shouldn't even work
@@ -196,6 +196,6 @@ async fn parse_webhook_url(http: Arc<Http>, url: String) -> anyhow::Result<Webho
     let split = url.split('/').collect::<Vec<&str>>();
     let id = split[0].parse::<u64>()?;
     let token = split[1].to_string();
-    let webhook = http.get_webhook_with_token(id, &token).await?;
+    let webhook = http.get_webhook_with_token(id.into(), &token).await?;
     Ok(webhook)
 }

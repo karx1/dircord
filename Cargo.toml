@@ -21,11 +21,13 @@ version = "1.20.0"
 features = ["full"]
 
 [dependencies.serenity]
-version = "0.11.4"
+# version = "0.11.4"
+git = "https://github.com/serenity-rs/serenity"
+rev = "56867af"
 default-features = false
 features = ["builder", "cache", "client", "gateway", "model", "utils", "native_tls_backend"]
 
 [build-dependencies.vergen]
-version = "7.3.1"
+version = "8.2.1"
 default-features = false
-features = ["git"]
+features = ["git", "gitcl"]

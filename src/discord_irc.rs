@@ -13,7 +13,7 @@ use serenity::{
         channel::{Channel, Message, MessageReference, MessageType},
         guild::Member,
         id::GuildId,
-        prelude::{ChannelId, Ready, Role, RoleId},
+        prelude::{ChannelId, GuildMemberUpdateEvent, Ready, Role, RoleId},
         user::User,
     },
     prelude::*,
@@ -64,16 +64,8 @@ impl<'a> StrChunks<'a> {
 }
 
 async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
-    let mut nick = match msg.member(http).await {
-        Ok(Member {
-            nick: Some(nick), ..
-        }) => Cow::Owned(nick),
-        _ => Cow::Borrowed(&msg.author.name),
-    };
-
-    if option_env!("DIRCORD_POLARIAN_MODE").is_some() {
-        nick = Cow::Owned("polarbear".to_string());
-    }
+    // it's okay to unwrap here since we know we're in a guild
+    let nick = msg.member(http).await.unwrap().display_name().to_owned();
 
     let mut chars = nick.char_indices();
     let first_char = chars.next().unwrap().1;
@@ -124,7 +116,8 @@ impl EventHandler for Handler {
 
         let (prefix, content_limit) = create_prefix(&msg, false, &ctx).await;
 
-        let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0) {
+        let (channel, channel_id) = match mapping.iter().find(|(_, &v)| v == msg.channel_id.0.get())
+        {
             Some((k, v)) => (k.as_str(), ChannelId::from(*v)),
             None => return,
         };
@@ -216,16 +209,24 @@ impl EventHandler for Handler {
         members.push(new_member);
     }
 
-    async fn guild_member_update(&self, ctx: Context, _: Option<Member>, new: Member) {
+    async fn guild_member_update(
+        &self,
+        ctx: Context,
+        _: Option<Member>,
+        new: Option<Member>,
+        _: GuildMemberUpdateEvent,
+    ) {
         let ctx_data = ctx.data.read().await;
         let mut members = ctx_data.get::<MembersKey>().unwrap().lock().await;
 
-        let x = members
-            .iter()
-            .position(|m| m.user.id == new.user.id)
-            .unwrap();
-        members.remove(x);
-        members.push(new);
+        if let Some(new) = new {
+            let x = members
+                .iter()
+                .position(|m| m.user.id == new.user.id)
+                .unwrap();
+            members.remove(x);
+            members.push(new);
+        }
     }
 
     async fn guild_member_removal(
@@ -258,7 +259,7 @@ async fn discord_to_irc_processing(
             let id = caps[1].parse::<u64>().unwrap();
 
             let display_name = self.members.iter().find_map(|member| {
-                (id == member.user.id.0).then(|| member.display_name().into_owned())
+                (id == member.user.id.0.get()).then(|| member.display_name().to_owned())
             });
 
             if let Some(display_name) = display_name {
@@ -300,7 +301,6 @@ async fn discord_to_irc_processing(
             .await
         {
             Ok(Channel::Guild(gc)) => Cow::Owned(format!("#{}", gc.name)),
-            Ok(Channel::Category(cat)) => Cow::Owned(format!("#{}", cat.name)),
             _ => Cow::Borrowed("#deleted-channel"),
         };
 
