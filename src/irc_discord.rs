@@ -291,7 +291,7 @@ fn irc_to_discord_processing(
         static PING_RE_2 = r"(?<=\s|^)@(\w+)";
         static CONTROL_CHAR_RE = r"\x1f|\x02|\x12|\x0f|\x16|\x03(?:\d{1,2}(?:,\d{1,2})?)?";
         static WHITESPACE_RE = r"^\s";
-        static CHANNEL_RE = r"#(\w+)";
+        static CHANNEL_RE = r"#([\w-]+)";
         static EMOJI_RE = r":(\w+):";
     }
 
