@@ -65,7 +65,7 @@ impl<'a> StrChunks<'a> {
 
 async fn create_prefix(msg: &Message, is_reply: bool, http: impl CacheHttp) -> (String, usize) {
     // it's okay to unwrap here since we know we're in a guild
-    let nick = msg.member(http).await.unwrap().display_name().to_owned();
+    let Ok(nick) = msg.member(http).await.map(|m| m.display_name().to_owned()) else { return ("(reply) ".into(), 400 - "(reply) ".len()) };
 
     let mut chars = nick.char_indices();
     let first_char = chars.next().unwrap().1;
